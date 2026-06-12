@@ -1,5 +1,7 @@
 using NUnit.Framework;
 using Rpg.Npc;
+using System;
+using System.IO;
 
 namespace Rpg.Npc.Tests.EditMode
 {
@@ -106,6 +108,72 @@ namespace Rpg.Npc.Tests.EditMode
             StringAssert.Contains("piety +1.0", lines[0]);
             StringAssert.Contains("Local opinion for villager_a toward hero: +12.0", lines[1]);
             StringAssert.Contains("Pending gossip interactions: 1.", lines[2]);
+        }
+
+        [Test]
+        public void GroupAsks_TriggerFromThresholds_AndAppearInDeliberationContext()
+        {
+            var service = new VillageOpinionService();
+            service.SetParticipants(new[] { "villager_a", "villager_b" });
+
+            service.ApplyHeroImpact("villager_a", 0f, 90f, 0f, 0f, 40f);
+            service.ApplyHeroImpact("villager_b", 0f, 0f, 0f, 0f, 0f);
+
+            var asksAfterLeadership = service.SnapshotGroupAsks();
+            Assert.IsTrue(asksAfterLeadership.Exists(a => string.Equals(a.askId, "ask_run_for_mayor", StringComparison.OrdinalIgnoreCase)));
+            Assert.IsFalse(asksAfterLeadership.Exists(a => string.Equals(a.askId, "ask_religious_figure", StringComparison.OrdinalIgnoreCase)));
+
+            service.ApplyHeroImpact("villager_a", 0f, 0f, 80f, 0f, 0f);
+            var asksAfterPiety = service.SnapshotGroupAsks();
+            Assert.IsTrue(asksAfterPiety.Exists(a => string.Equals(a.askId, "ask_religious_figure", StringComparison.OrdinalIgnoreCase)));
+
+            var context = service.BuildDeliberationContext("villager_a");
+            Assert.IsTrue(context.Exists(line => line.IndexOf("Group asks awaiting response", StringComparison.OrdinalIgnoreCase) >= 0));
+            Assert.IsTrue(context.Exists(line => line.IndexOf("ask_run_for_mayor", StringComparison.OrdinalIgnoreCase) >= 0));
+        }
+
+        [Test]
+        public void GroupAsks_PersistAcceptState_AndEmitMilestoneSignals()
+        {
+            var tempPath = Path.Combine(Path.GetTempPath(), $"village_asks_{Guid.NewGuid():N}.json");
+            try
+            {
+                var service = new VillageOpinionService(tempPath);
+                service.SetParticipants(new[] { "villager_a", "villager_b" });
+                service.ApplyHeroImpact("villager_a", 0f, 90f, 0f, 0f, 50f);
+
+                var beforeAccept = service.GetSummary("villager_a");
+                Assert.IsTrue(service.TryRespondToGroupAsk("ask_run_for_mayor", true, "villager_a", out var acceptSignals));
+                CollectionAssert.Contains(acceptSignals, "unlock:m_village_mayor_arc");
+
+                var pendingSignals = service.ConsumePendingMilestoneSignals();
+                CollectionAssert.Contains(pendingSignals, "hint:m_village_mayor_arc");
+                CollectionAssert.Contains(pendingSignals, "unlock:m_village_mayor_arc");
+
+                var afterAccept = service.GetSummary("villager_a");
+                Assert.Greater(afterAccept.AggregateLeadership, beforeAccept.AggregateLeadership);
+
+                service.ApplyHeroImpact("villager_a", 0f, 0f, 80f, 0f, 0f);
+                var beforeDecline = service.GetSummary("villager_a");
+                Assert.IsTrue(service.TryRespondToGroupAsk("ask_religious_figure", false, "villager_b", out var declineSignals));
+                CollectionAssert.Contains(declineSignals, "hint:m_village_religious_declined");
+                var afterDecline = service.GetSummary("villager_a");
+                Assert.Less(afterDecline.AggregatePiety, beforeDecline.AggregatePiety);
+
+                var reloaded = new VillageOpinionService(tempPath);
+                var persisted = reloaded.SnapshotGroupAsks();
+                var mayor = persisted.Find(a => string.Equals(a.askId, "ask_run_for_mayor", StringComparison.OrdinalIgnoreCase));
+                Assert.IsNotNull(mayor);
+                Assert.AreEqual("accepted", mayor.state);
+                var religious = persisted.Find(a => string.Equals(a.askId, "ask_religious_figure", StringComparison.OrdinalIgnoreCase));
+                Assert.IsNotNull(religious);
+                Assert.AreEqual("declined", religious.state);
+            }
+            finally
+            {
+                if (File.Exists(tempPath))
+                    File.Delete(tempPath);
+            }
         }
     }
 }
