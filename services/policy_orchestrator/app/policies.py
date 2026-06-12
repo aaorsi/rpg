@@ -36,6 +36,9 @@ class NpcPolicy:
 
 
 class PolicyRegistry:
+    """NPC action allow-lists. Keep in sync with Unity ``NpcActionTypes`` in
+    ``Assets/Scripts/Dialogue/NpcActionTypes.cs``."""
+
     def __init__(self) -> None:
         self._by_type: Dict[NpcType, NpcPolicy] = {
             NpcType.NORMAL: NpcPolicy(

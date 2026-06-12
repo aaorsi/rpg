@@ -54,6 +54,7 @@ namespace Rpg.Dialogue
         NarrativeSessionStore _sessionStore;
         NarrativeContentLibrary _contentLibrary;
         string _lastPayloadSummary;
+        string _lastCommittedInteractionOutcome;
         PendingTransferDecision _pendingTransfer;
         readonly Dictionary<string, int> _consecutiveRejectByNpc = new Dictionary<string, int>();
         int _runtimeGenerationSeed;
@@ -725,12 +726,12 @@ namespace Rpg.Dialogue
                         if (a == null || string.IsNullOrWhiteSpace(a.ActionType))
                             continue;
                         var t = a.ActionType.Trim().ToLowerInvariant();
-                        if (t == "give_object")
+                        if (t == NpcActionTypes.GiveObject)
                         {
                             QueueNpcOfferForDecision(_activeNpc.npcId, a, result.Payload);
                             continue;
                         }
-                        if (t == "receive_object")
+                        if (t == NpcActionTypes.ReceiveObject)
                         {
                             QueueHeroGiveForDecision(_activeNpc.npcId, a, result.Payload);
                             continue;
@@ -744,6 +745,7 @@ namespace Rpg.Dialogue
                 if (result.Payload != null && _activeNpc != null)
                 {
                     _questState?.ApplySignals(_activeNpc.npcId, result.Payload.MilestoneSignals);
+                    _lastCommittedInteractionOutcome = NormalizeInteractionOutcome(result.Payload.InteractionOutcome);
                     _lastPayloadSummary = $"outcome={result.Payload.InteractionOutcome}, actions={result.Payload.ProposedActions?.Count ?? 0}, signals={result.Payload.MilestoneSignals?.Count ?? 0}";
                 }
                 if (_activeNpc != null)
@@ -766,7 +768,7 @@ namespace Rpg.Dialogue
                 if (a == null || string.IsNullOrWhiteSpace(a.ActionType))
                     continue;
                 var t = a.ActionType.Trim().ToLowerInvariant();
-                if (t == "follow_hero")
+                if (t == NpcActionTypes.FollowHero)
                     return;
             }
 
@@ -776,12 +778,12 @@ namespace Rpg.Dialogue
 
             payload.ProposedActions.Add(new NpcProposedAction
             {
-                ActionType = "follow_hero",
+                ActionType = NpcActionTypes.FollowHero,
                 TargetId = InventoryService.HeroActorId,
                 Quantity = 1f,
                 Notes = "auto_inferred_from_sidekick_reply"
             });
-            DialogueTelemetry.Log("NpcActionSynthesized", $"npc={npcId} synthesized follow_hero from sidekick follow-language heuristics.");
+            DialogueTelemetry.Log("NpcActionSynthesized", $"npc={npcId} synthesized {NpcActionTypes.FollowHero} from sidekick follow-language heuristics.");
         }
 
         static bool LooksLikeFollowAcceptance(string say)
@@ -870,7 +872,27 @@ namespace Rpg.Dialogue
                 || t.Contains("ready when you");
         }
 
-        static bool IsSidekickNpcById(string npcId) => SidekickCompanion.BindingRootHasSidekick(npcId);
+        void AppendDebugLine(string msg)
+        {
+            if (ui == null || string.IsNullOrWhiteSpace(msg))
+                return;
+            ui.AppendSystemLine(msg);
+            ui.AppendNpcLine(msg);
+        }
+
+        bool TryGetNpcProfile(string npcId, out GeneratedNpcProfile profile) =>
+            TryGetNpcProfile(_narrativeCanon, npcId, out profile);
+
+        static bool TryGetNpcProfile(NarrativeSessionCanon canon, string npcId, out GeneratedNpcProfile profile)
+        {
+            profile = null;
+            if (canon?.npcProfiles == null || string.IsNullOrWhiteSpace(npcId))
+                return false;
+            profile = canon.npcProfiles.Find(x =>
+                x != null && !string.IsNullOrWhiteSpace(x.npcId) &&
+                string.Equals(x.npcId, npcId, StringComparison.OrdinalIgnoreCase));
+            return profile != null;
+        }
 
         bool TryHandleNarrativeDebugCommand(string line)
         {
@@ -911,8 +933,7 @@ namespace Rpg.Dialogue
                 var msg = snap.Count == 0
                     ? "Quest state: no milestones."
                     : "Quest state: " + string.Join(" | ", snap.ConvertAll(m => $"{m.milestoneId}:{m.status}"));
-                ui.AppendSystemLine(msg);
-                ui.AppendNpcLine(msg);
+                AppendDebugLine(msg);
                 return true;
             }
 
@@ -920,8 +941,7 @@ namespace Rpg.Dialogue
             {
                 if (_narrativeCanon == null)
                 {
-                    ui.AppendSystemLine("No session canon loaded.");
-                    ui.AppendNpcLine("No session canon loaded.");
+                    AppendDebugLine("No session canon loaded.");
                 }
                 else
                 {
@@ -933,8 +953,7 @@ namespace Rpg.Dialogue
                     if (!expanded)
                     {
                         var msg = $"Canon: premise={_narrativeCanon.premiseId}, world={_narrativeCanon.worldId}, objective={_narrativeCanon.finalObjective}. Use /canon full for NPC consistency.";
-                        ui.AppendSystemLine(msg);
-                        ui.AppendNpcLine(msg);
+                        AppendDebugLine(msg);
                     }
                     else
                     {
@@ -949,13 +968,10 @@ namespace Rpg.Dialogue
             {
                 if (_activeNpc == null)
                 {
-                    ui.AppendSystemLine("No active NPC.");
-                    ui.AppendNpcLine("No active NPC.");
+                    AppendDebugLine("No active NPC.");
                     return true;
                 }
-                var msg = BuildActiveNpcDebugSummary(_activeNpc.npcId);
-                ui.AppendSystemLine(msg);
-                ui.AppendNpcLine(msg);
+                AppendDebugLine(BuildActiveNpcDebugSummary(_activeNpc.npcId));
                 return true;
             }
 
@@ -963,17 +979,14 @@ namespace Rpg.Dialogue
             {
                 if (_narrativeCanon?.routesByMilestone == null || _narrativeCanon.routesByMilestone.Count == 0)
                 {
-                    ui.AppendSystemLine("No route map available.");
-                    ui.AppendNpcLine("No route map available.");
+                    AppendDebugLine("No route map available.");
                 }
                 else
                 {
                     var parts = new List<string>();
                     foreach (var kv in _narrativeCanon.routesByMilestone)
                         parts.Add($"{kv.Key}=>{kv.Value}");
-                    var msg = "Routes: " + string.Join(" | ", parts);
-                    ui.AppendSystemLine(msg);
-                    ui.AppendNpcLine(msg);
+                    AppendDebugLine("Routes: " + string.Join(" | ", parts));
                 }
                 return true;
             }
@@ -1040,8 +1053,7 @@ namespace Rpg.Dialogue
                 var display = _inventory.GetItemDisplayName(parts[2]);
                 var ok = _inventory.TryTransfer(npcId, InventoryService.HeroActorId, parts[2], qtyGive);
                 var msg = ok ? $"Transfer OK: NPC -> Hero ({display} x{Mathf.Max(1, qtyGive)})." : $"Transfer failed. NPC may not have {display} x{Mathf.Max(1, qtyGive)}.";
-                ui.AppendSystemLine(msg);
-                ui.AppendNpcLine(msg);
+                AppendDebugLine(msg);
                 UpdateInventoryDebugUi(npcId);
                 RefreshWorldInventoryVisuals();
                 return true;
@@ -1066,8 +1078,7 @@ namespace Rpg.Dialogue
                     : (ok
                         ? $"Transfer OK: Hero -> NPC ({display} x{transferQty}). NPC accepts: {acceptanceReason}"
                         : $"Transfer failed. Hero may not have {display} x{transferQty}.");
-                ui.AppendSystemLine(msg);
-                ui.AppendNpcLine(msg);
+                AppendDebugLine(msg);
                 UpdateInventoryDebugUi(npcId);
                 RefreshWorldInventoryVisuals();
                 return true;
@@ -1096,24 +1107,19 @@ namespace Rpg.Dialogue
             if (!_inventory.IsKnownItem(itemId))
             {
                 var msg = $"Unknown itemId: {itemId}. Use /inv list to see readable names and valid IDs.";
-                ui.AppendSystemLine(msg);
-                ui.AppendNpcLine(msg);
+                AppendDebugLine(msg);
                 return true;
             }
 
             if (op == "add")
             {
                 _inventory.AddItem(actorId, itemId, qty);
-                var msg = $"Added {_inventory.GetItemDisplayName(itemId)} x{qty} to {actorKey}.";
-                ui.AppendSystemLine(msg);
-                ui.AppendNpcLine(msg);
+                AppendDebugLine($"Added {_inventory.GetItemDisplayName(itemId)} x{qty} to {actorKey}.");
             }
             else if (op == "remove")
             {
                 var ok = _inventory.RemoveItem(actorId, itemId, qty);
-                var msg = ok ? $"Removed {_inventory.GetItemDisplayName(itemId)} x{qty} from {actorKey}." : $"Remove failed. {actorKey} may not have enough quantity.";
-                ui.AppendSystemLine(msg);
-                ui.AppendNpcLine(msg);
+                AppendDebugLine(ok ? $"Removed {_inventory.GetItemDisplayName(itemId)} x{qty} from {actorKey}." : $"Remove failed. {actorKey} may not have enough quantity.");
             }
             else
             {
@@ -1124,6 +1130,21 @@ namespace Rpg.Dialogue
             UpdateInventoryDebugUi(npcId);
             RefreshWorldInventoryVisuals();
             return true;
+        }
+
+        DialogueResult CommitSuccessfulTurn(string playerLine, string assistantLineForSession, string rawAssistant, AssistantModelPayload payload)
+        {
+            _session.AddUserLine(playerLine);
+            _session.AddAssistantLine(assistantLineForSession);
+            _session.Trim();
+            if (_memory != null && payload.MemoryAdds.Count > 0)
+                _memory.TryAppendCandidates(_activeNpc.npcId, payload.MemoryAdds);
+            if (_transcriptRepo != null && _activeNpc != null)
+                _transcriptRepo.Save(_activeNpc.npcId, _session.GetRecentTurnMessages(), markConversationEnded: false);
+            ProcessOutcomeTelemetryAndFailForward(_activeNpc.npcId, payload);
+            ApplyFailForwardForMilestones(_activeNpc.npcId);
+            _sessionBreakInset = null;
+            return DialogueResult.FromModel(payload.Say, rawAssistant, payload.AckYear, payload);
         }
 
         void ProcessOutcomeTelemetryAndFailForward(string npcId, AssistantModelPayload payload)
@@ -1169,11 +1190,7 @@ namespace Rpg.Dialogue
                 : "(Inventory unavailable)";
             if (_ollamaSettings.usePythonPolicyOrchestrator && _pythonClient != null && _activeNpc != null)
             {
-                var profile = _narrativeCanon?.npcProfiles != null
-                    ? _narrativeCanon.npcProfiles.Find(x =>
-                        x != null && !string.IsNullOrWhiteSpace(x.npcId) &&
-                        string.Equals(x.npcId, _activeNpc.npcId, StringComparison.OrdinalIgnoreCase))
-                    : null;
+                TryGetNpcProfile(_activeNpc.npcId, out var profile);
                 var type = GhoulMenaceController.IsGhoulStoryNpcId(_activeNpc.npcId)
                     ? "ghoul"
                     : (SidekickCompanion.BindingRootHasSidekick(_activeNpc.npcId) ? "sidekick" : "normal");
@@ -1213,18 +1230,9 @@ namespace Rpg.Dialogue
                 var envelope = await _pythonClient.DialogueTurnAsync(req, cancellationToken);
                 if (envelope != null && envelope.ok && envelope.dialogue != null && !string.IsNullOrWhiteSpace(envelope.dialogue.say))
                 {
-                    var sidecarPayload = BuildPayloadFromPython(envelope.dialogue);
-                    _session.AddUserLine(playerLine);
-                    _session.AddAssistantLine(envelope.dialogue.rawAssistant ?? envelope.dialogue.say);
-                    _session.Trim();
-                    if (_memory != null && sidecarPayload.MemoryAdds.Count > 0)
-                        _memory.TryAppendCandidates(_activeNpc.npcId, sidecarPayload.MemoryAdds);
-                    if (_transcriptRepo != null && _activeNpc != null)
-                        _transcriptRepo.Save(_activeNpc.npcId, _session.GetRecentTurnMessages(), markConversationEnded: false);
-                    ProcessOutcomeTelemetryAndFailForward(_activeNpc.npcId, sidecarPayload);
-                    ApplyFailForwardForMilestones(_activeNpc.npcId);
-                    _sessionBreakInset = null;
-                    return DialogueResult.FromModel(sidecarPayload.Say, envelope.dialogue.rawAssistant, sidecarPayload.AckYear, sidecarPayload);
+                    var sidecarPayload = ResponseValidator.BuildPayloadFromDialogueDto(envelope.dialogue);
+                    var assistantLineForSession = envelope.dialogue.rawAssistant ?? envelope.dialogue.say;
+                    return CommitSuccessfulTurn(playerLine, assistantLineForSession, envelope.dialogue.rawAssistant, sidecarPayload);
                 }
 
                 var err = envelope?.error?.message ?? "Sidecar dialogue call failed.";
@@ -1259,19 +1267,7 @@ namespace Rpg.Dialogue
 
             var raw = http.AssistantContent.Trim();
             if (ResponseValidator.TryParseModelResponse(raw, out var payload))
-            {
-                _session.AddUserLine(playerLine);
-                _session.AddAssistantLine(raw);
-                _session.Trim();
-                if (_memory != null && payload.MemoryAdds.Count > 0)
-                    _memory.TryAppendCandidates(_activeNpc.npcId, payload.MemoryAdds);
-                if (_transcriptRepo != null && _activeNpc != null)
-                    _transcriptRepo.Save(_activeNpc.npcId, _session.GetRecentTurnMessages(), markConversationEnded: false);
-                ProcessOutcomeTelemetryAndFailForward(_activeNpc.npcId, payload);
-                ApplyFailForwardForMilestones(_activeNpc.npcId);
-                _sessionBreakInset = null;
-                return DialogueResult.FromModel(payload.Say, raw, payload.AckYear, payload);
-            }
+                return CommitSuccessfulTurn(playerLine, raw, raw, payload);
 
             var preview = raw.Length > 220 ? raw.Substring(0, 220) + "…" : raw;
             return DialogueResult.FromError(
@@ -1385,11 +1381,14 @@ namespace Rpg.Dialogue
             _actionExecutor = new NpcActionExecutor(_inventory, _locations, _questState, _refs);
         }
 
+        /// <summary>
+        /// Refreshes the inventory debug panel (hero + NPC inventories, milestones, profile).
+        /// Callers invoke this after inventory mutations during dialogue (e.g. /inv, give/take/trade).
+        /// No-ops only when UI or inventory services are unavailable — not when an NPC session is active.
+        /// </summary>
         void UpdateInventoryDebugUi(string npcId)
         {
             if (ui == null || _inventory == null)
-                return;
-            if (_activeNpc != null)
                 return;
             var hero = _inventory.DescribeInventory(InventoryService.HeroActorId);
             var npc = _inventory.DescribeInventory(npcId);
@@ -1405,12 +1404,10 @@ namespace Rpg.Dialogue
 
         string BuildActiveNpcDebugSummary(string npcId)
         {
-            if (_narrativeCanon?.npcProfiles == null || string.IsNullOrWhiteSpace(npcId))
-                return "(no generated profile)";
-            var p = _narrativeCanon.npcProfiles.Find(x =>
-                x != null && !string.IsNullOrWhiteSpace(x.npcId) && string.Equals(x.npcId, npcId, StringComparison.OrdinalIgnoreCase));
-            if (p == null)
-                return "(no generated profile match)";
+            if (!TryGetNpcProfile(npcId, out var p))
+                return string.IsNullOrWhiteSpace(npcId) || _narrativeCanon?.npcProfiles == null
+                    ? "(no generated profile)"
+                    : "(no generated profile match)";
             var traits = p.socialTraits == null || p.socialTraits.Count == 0
                 ? "(none)"
                 : string.Join(", ", p.socialTraits);
@@ -1444,7 +1441,7 @@ namespace Rpg.Dialogue
                 var req = p.followerRecruitmentRequirements == null || p.followerRecruitmentRequirements.Count == 0
                     ? "(none)"
                     : string.Join(" | ", p.followerRecruitmentRequirements);
-                var hasFollow = p.capabilities != null && p.capabilities.Exists(c => string.Equals(c, "follow_hero", StringComparison.OrdinalIgnoreCase));
+                var hasFollow = p.capabilities != null && p.capabilities.Exists(c => string.Equals(c, NpcActionTypes.FollowHero, StringComparison.OrdinalIgnoreCase));
                 var hasGuide = p.capabilities != null && (p.capabilities.Exists(c => string.Equals(c, "guide_to_location", StringComparison.OrdinalIgnoreCase))
                                                           || p.capabilities.Exists(c => string.Equals(c, "refer_to_npc", StringComparison.OrdinalIgnoreCase)));
 
@@ -1457,12 +1454,12 @@ namespace Rpg.Dialogue
                     if (hasGuide)
                         sb.AppendLine("  warning: sidekick has guide capability in profile; runtime executor still blocks guiding.");
                     if (!hasFollow)
-                        sb.AppendLine("  warning: sidekick missing follow_hero capability.");
+                        sb.AppendLine($"  warning: sidekick missing {NpcActionTypes.FollowHero} capability.");
                 }
                 else
                 {
                     if (hasFollow)
-                        sb.AppendLine("  warning: normal NPC profile exposes follow_hero; runtime executor will reject it.");
+                        sb.AppendLine($"  warning: normal NPC profile exposes {NpcActionTypes.FollowHero}; runtime executor will reject it.");
                 }
             }
 
@@ -1473,11 +1470,7 @@ namespace Rpg.Dialogue
         {
             if (GhoulMenaceController.IsGhoulStoryNpcId(npcId))
                 return null;
-            if (_narrativeCanon?.npcProfiles == null || string.IsNullOrWhiteSpace(npcId))
-                return null;
-            var p = _narrativeCanon.npcProfiles.Find(x =>
-                x != null && !string.IsNullOrWhiteSpace(x.npcId) && string.Equals(x.npcId, npcId, StringComparison.OrdinalIgnoreCase));
-            if (p == null)
+            if (!TryGetNpcProfile(npcId, out var p))
                 return null;
             var personality = string.IsNullOrWhiteSpace(p.personality) ? "reserved" : p.personality.Trim().ToLowerInvariant();
 
@@ -1531,81 +1524,15 @@ namespace Rpg.Dialogue
                     sb.AppendLine("- " + m);
             }
 
-            if (canon.npcProfiles != null && !string.IsNullOrWhiteSpace(npcId))
+            if (TryGetNpcProfile(canon, npcId, out var profile))
             {
-                var profile = canon.npcProfiles.Find(x =>
-                    x != null && !string.IsNullOrWhiteSpace(x.npcId) &&
-                    string.Equals(x.npcId, npcId, StringComparison.OrdinalIgnoreCase));
-                if (profile != null)
-                {
-                    sb.AppendLine("NPC_PROFILE:");
-                    sb.AppendLine($"- npcType={profile.npcType}");
-                    sb.AppendLine($"- personality={profile.personality}");
-                    if (profile.goals != null && profile.goals.Count > 0)
-                        sb.AppendLine("- goals=" + string.Join(" | ", profile.goals));
-                }
+                sb.AppendLine("NPC_PROFILE:");
+                sb.AppendLine($"- npcType={profile.npcType}");
+                sb.AppendLine($"- personality={profile.personality}");
+                if (profile.goals != null && profile.goals.Count > 0)
+                    sb.AppendLine("- goals=" + string.Join(" | ", profile.goals));
             }
             return sb.ToString().TrimEnd();
-        }
-
-        static AssistantModelPayload BuildPayloadFromPython(PythonDialogueTurnResponseDto dto)
-        {
-            var payload = new AssistantModelPayload
-            {
-                Say = dto != null ? dto.say ?? string.Empty : string.Empty,
-                AckYear = dto != null && dto.ackYear,
-                InteractionOutcome = dto != null ? dto.interactionOutcome ?? "unspecified" : "unspecified"
-            };
-            if (dto?.proposedActions != null)
-            {
-                foreach (var action in dto.proposedActions)
-                {
-                    if (action == null)
-                        continue;
-                    payload.ProposedActions.Add(new NpcProposedAction
-                    {
-                        ActionType = action.ActionType,
-                        TargetId = action.TargetId,
-                        Quantity = action.Quantity,
-                        Notes = action.Notes
-                    });
-                }
-            }
-
-            if (dto?.milestoneSignals != null)
-            {
-                foreach (var signal in dto.milestoneSignals)
-                {
-                    if (!string.IsNullOrWhiteSpace(signal))
-                        payload.MilestoneSignals.Add(signal.Trim());
-                }
-            }
-
-            if (dto?.stateDeltas != null)
-            {
-                foreach (var kv in dto.stateDeltas)
-                {
-                    if (string.IsNullOrWhiteSpace(kv.Key) || string.IsNullOrWhiteSpace(kv.Value))
-                        continue;
-                    payload.StateDeltas[kv.Key.Trim()] = kv.Value.Trim();
-                }
-            }
-
-            if (dto?.memoriesToAdd != null)
-            {
-                foreach (var mem in dto.memoriesToAdd)
-                {
-                    if (mem == null)
-                        continue;
-                    var kind = mem.ContainsKey("kind") ? mem["kind"] : "fact";
-                    var summary = mem.ContainsKey("summary") ? mem["summary"] : string.Empty;
-                    var subject = mem.ContainsKey("subjectCharacterId") ? mem["subjectCharacterId"] : "player";
-                    if (!string.IsNullOrWhiteSpace(summary))
-                        payload.MemoryAdds.Add(new NpcMemoryCandidate(kind, summary, subject));
-                }
-            }
-
-            return payload;
         }
 
         void QueueNpcOfferForDecision(string npcId, NpcProposedAction action, AssistantModelPayload payload)
@@ -1752,15 +1679,7 @@ namespace Rpg.Dialogue
                 score += SocialLevelToDelta(profile.socialTraits, "trickery", -0.08f);
             }
 
-            if (!string.IsNullOrWhiteSpace(_lastPayloadSummary))
-            {
-                if (_lastPayloadSummary.IndexOf("outcome=cooperate", StringComparison.OrdinalIgnoreCase) >= 0)
-                    score += 0.15f;
-                if (_lastPayloadSummary.IndexOf("outcome=reject", StringComparison.OrdinalIgnoreCase) >= 0)
-                    score -= 0.2f;
-                if (_lastPayloadSummary.IndexOf("outcome=counter_offer", StringComparison.OrdinalIgnoreCase) >= 0)
-                    score -= 0.1f;
-            }
+            score += InteractionOutcomeWillingnessDelta(_lastCommittedInteractionOutcome);
 
             var intentKey = (intent ?? string.Empty).Trim().ToLowerInvariant();
             if (intentKey == "take")
@@ -1784,6 +1703,24 @@ namespace Rpg.Dialogue
                 ? "this exchange fits my current stance."
                 : "this exchange does not fit my current stance.";
             return accept;
+        }
+
+        static string NormalizeInteractionOutcome(string raw)
+        {
+            return string.IsNullOrWhiteSpace(raw) ? null : raw.Trim().ToLowerInvariant();
+        }
+
+        internal static float InteractionOutcomeWillingnessDelta(string normalizedOutcome)
+        {
+            if (string.IsNullOrWhiteSpace(normalizedOutcome))
+                return 0f;
+            if (normalizedOutcome == "cooperate")
+                return 0.15f;
+            if (normalizedOutcome == "reject")
+                return -0.2f;
+            if (normalizedOutcome == "counter_offer")
+                return -0.1f;
+            return 0f;
         }
 
         static float SocialLevelToDelta(Dictionary<string, string> traits, string key, float magnitude)
@@ -2010,7 +1947,7 @@ namespace Rpg.Dialogue
             NpcChickenTheftConfrontation.NotifyReparationComplete(npcId);
         }
 
-        /// <summary>Called when narrative <c>receive_object</c> moves inventory from hero to NPC during dialogue.</summary>
+        /// <summary>Called when narrative <see cref="NpcActionTypes.ReceiveObject"/> moves inventory from hero to NPC during dialogue.</summary>
         public void NotifyChickenTheftReparationFromNpcAction(string npcId) => NotifyChickenTheftReparationIfNeeded(npcId);
 
         public async Task<string> RequestChickenTheftShoutLineAsync(CancellationToken cancellationToken)
@@ -2037,10 +1974,11 @@ namespace Rpg.Dialogue
                     cancellationToken);
                 if (result.IsSuccess && !string.IsNullOrWhiteSpace(result.AssistantContent))
                     return result.AssistantContent.Trim();
+                DialogueTelemetry.Log("ChickenTheftShoutFail", result.Error ?? "empty assistant content");
             }
-            catch
+            catch (Exception ex)
             {
-                // keep fallback
+                DialogueTelemetry.Log("ChickenTheftShoutFail", ex.Message);
             }
 
             return fallback;
@@ -2086,11 +2024,13 @@ namespace Rpg.Dialogue
                     var result = await _ollamaClient.ChatAsync(messages, _ollamaSettings != null ? _ollamaSettings.model : null, CancellationToken.None);
                     if (result.IsSuccess && !string.IsNullOrWhiteSpace(result.AssistantContent))
                         output = result.AssistantContent.Trim();
+                    else
+                        DialogueTelemetry.Log("BookNarrationFail", result.Error ?? "empty assistant content");
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Keep fallback text on failure.
+                DialogueTelemetry.Log("BookNarrationFail", ex.Message);
             }
 
             var overlay = UnityEngine.Object.FindFirstObjectByType<GameplayIntroOverlay>();

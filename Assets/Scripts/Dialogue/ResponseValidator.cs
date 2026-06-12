@@ -121,27 +121,71 @@ namespace Rpg.Dialogue
 
             try
             {
-                var ack = obj["ackYear"] ?? obj["ack_year"];
-                if (ack != null && ack.Type != JTokenType.Null)
-                {
-                    if (ack.Type == JTokenType.Boolean)
-                        payload.AckYear = ack.Value<bool>();
-                    else if (bool.TryParse(ack.ToString(), out var parsedAck))
-                        payload.AckYear = parsedAck;
-                }
-
-                ParseMemoriesToAdd(obj, payload.MemoryAdds);
-                ParseInteractionOutcome(obj, payload);
-                ParseProposedActions(obj, payload.ProposedActions);
-                NormalizeGuideActionTypes(payload.ProposedActions);
-                ParseStateDeltas(obj, payload.StateDeltas);
-                ParseMilestones(obj, payload.MilestoneSignals);
+                PopulatePayloadFromJsonObject(obj, payload);
                 return true;
             }
             catch
             {
                 return true;
             }
+        }
+
+        /// <summary>
+        /// Maps a Python sidecar dialogue DTO into <see cref="AssistantModelPayload"/> using the same field parsers as the fallback path.
+        /// </summary>
+        public static AssistantModelPayload BuildPayloadFromDialogueDto(PythonDialogueTurnResponseDto dto)
+        {
+            var payload = new AssistantModelPayload
+            {
+                Say = dto != null ? dto.say ?? string.Empty : string.Empty,
+                AckYear = dto != null && dto.ackYear
+            };
+            if (dto == null)
+                return payload;
+
+            if (dto.proposedActions != null)
+            {
+                foreach (var action in dto.proposedActions)
+                {
+                    if (action == null)
+                        continue;
+                    payload.ProposedActions.Add(new NpcProposedAction
+                    {
+                        ActionType = action.ActionType,
+                        TargetId = action.TargetId,
+                        Quantity = action.Quantity,
+                        Notes = action.Notes
+                    });
+                }
+
+                NormalizeGuideActionTypes(payload.ProposedActions);
+            }
+
+            var obj = JObject.FromObject(dto);
+            ParseMemoriesToAdd(obj, payload.MemoryAdds);
+            ParseInteractionOutcome(obj, payload);
+            ParseStateDeltas(obj, payload.StateDeltas);
+            ParseMilestones(obj, payload.MilestoneSignals);
+            return payload;
+        }
+
+        static void PopulatePayloadFromJsonObject(JObject obj, AssistantModelPayload payload)
+        {
+            var ack = obj["ackYear"] ?? obj["ack_year"];
+            if (ack != null && ack.Type != JTokenType.Null)
+            {
+                if (ack.Type == JTokenType.Boolean)
+                    payload.AckYear = ack.Value<bool>();
+                else if (bool.TryParse(ack.ToString(), out var parsedAck))
+                    payload.AckYear = parsedAck;
+            }
+
+            ParseMemoriesToAdd(obj, payload.MemoryAdds);
+            ParseInteractionOutcome(obj, payload);
+            ParseProposedActions(obj, payload.ProposedActions);
+            NormalizeGuideActionTypes(payload.ProposedActions);
+            ParseStateDeltas(obj, payload.StateDeltas);
+            ParseMilestones(obj, payload.MilestoneSignals);
         }
 
         /// <summary>Maps model synonyms (e.g. guide_to_location) to executor-supported action types.</summary>
