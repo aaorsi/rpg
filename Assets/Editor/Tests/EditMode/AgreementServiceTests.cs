@@ -99,6 +99,27 @@ namespace Rpg.Dialogue.Tests.EditMode
         }
 
         [Test]
+        public void Lifecycle_CompletionFails_WhenInventoryUnavailable()
+        {
+            var agreements = NewAgreementService();
+            var created = agreements.CreateOffer(
+                AgreementType.Hire,
+                "npc_guard",
+                payerActorId: "npc_guard",
+                payeeActorId: InventoryService.HeroActorId,
+                payoutCoins: 3,
+                summary: "Guard duty");
+            agreements.TryAccept(created.agreementId);
+            agreements.TryStart(created.agreementId);
+
+            var ok = agreements.TryComplete(created.agreementId, null, out var completionError);
+
+            Assert.IsFalse(ok);
+            Assert.AreEqual("inventory_unavailable", completionError);
+            Assert.AreEqual("in_progress", agreements.Snapshot().Single().state);
+        }
+
+        [Test]
         public void Adapter_AppliesSignalDrivenCompletion_AndTransfersPayout()
         {
             var agreements = NewAgreementService();
@@ -135,6 +156,38 @@ namespace Rpg.Dialogue.Tests.EditMode
             payload.InteractionOutcome = "reject";
             AgreementOutcomeAdapter.ApplyFromDialoguePayload(agreements, null, "npc_scholar", payload);
             Assert.AreEqual("failed", agreements.Snapshot().Single().state);
+        }
+
+        [Test]
+        public void BuildActiveAgreementSummaries_ExcludesTerminalStates_AndKeepsOpenContracts()
+        {
+            var agreements = NewAgreementService();
+            var active = agreements.CreateOffer(
+                AgreementType.Advice,
+                "npc_scholar",
+                payerActorId: "npc_scholar",
+                payeeActorId: InventoryService.HeroActorId,
+                payoutCoins: 0,
+                summary: "Share temple lore");
+            var completed = agreements.CreateOffer(
+                AgreementType.Hire,
+                "npc_scholar",
+                payerActorId: "npc_scholar",
+                payeeActorId: InventoryService.HeroActorId,
+                payoutCoins: 0,
+                summary: "Guard contract");
+
+            agreements.TryAccept(completed.agreementId);
+            agreements.TryStart(completed.agreementId);
+            Assert.IsTrue(agreements.TryComplete(completed.agreementId, NewInventoryService(), out _));
+
+            var summaries = agreements.BuildActiveAgreementSummariesForNpc("npc_scholar");
+
+            Assert.AreEqual(1, summaries.Count);
+            StringAssert.Contains("offered:advice:Share temple lore:coins=0", summaries[0]);
+            var snapshot = agreements.Snapshot();
+            Assert.AreEqual("offered", snapshot.Single(x => x.agreementId == active.agreementId).state);
+            Assert.AreEqual("completed", snapshot.Single(x => x.agreementId == completed.agreementId).state);
         }
 
         AgreementService NewAgreementService() => new AgreementService(_agreementPath);

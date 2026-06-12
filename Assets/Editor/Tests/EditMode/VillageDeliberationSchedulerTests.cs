@@ -47,5 +47,45 @@ namespace Rpg.Npc.Tests.EditMode
             Assert.IsTrue(scheduler.TryAcquire(2.1f, out var third, out _));
             Assert.AreEqual("villager_b", third);
         }
+
+        [Test]
+        public void SetParticipants_PreservesNextRoundRobinNpcAcrossRefresh()
+        {
+            var scheduler = new VillageDeliberationScheduler(1f);
+            scheduler.SetParticipants(new[] { "villager_a", "villager_b", "villager_c" });
+
+            Assert.IsTrue(scheduler.TryAcquire(0f, out var first, out _));
+            Assert.AreEqual("villager_a", first);
+
+            Assert.IsTrue(scheduler.TryAcquire(1.1f, out var second, out _));
+            Assert.AreEqual("villager_b", second);
+
+            scheduler.SetParticipants(new[] { "villager_a", "villager_b", "villager_c", "villager_d" });
+
+            Assert.IsTrue(scheduler.TryAcquire(2.2f, out var third, out _));
+            Assert.AreEqual("villager_c", third);
+        }
+
+        [Test]
+        public void RequestImmediate_DeduplicatesNpcAndIgnoresUnknownIds()
+        {
+            var scheduler = new VillageDeliberationScheduler(1f);
+            scheduler.SetParticipants(new[] { "villager_a", "villager_b" });
+
+            Assert.IsTrue(scheduler.TryAcquire(0f, out var first, out _));
+            Assert.AreEqual("villager_a", first);
+
+            scheduler.RequestImmediate("villager_b", "combat");
+            scheduler.RequestImmediate("villager_b", "duplicate_should_not_queue");
+            scheduler.RequestImmediate("villager_unknown", "ignored");
+
+            Assert.IsTrue(scheduler.TryAcquire(1.1f, out var priority, out var reason));
+            Assert.AreEqual("villager_b", priority);
+            Assert.AreEqual("combat", reason);
+
+            Assert.IsTrue(scheduler.TryAcquire(2.2f, out var roundRobin, out var roundRobinReason));
+            Assert.AreEqual("villager_b", roundRobin);
+            Assert.AreEqual("round_robin", roundRobinReason);
+        }
     }
 }

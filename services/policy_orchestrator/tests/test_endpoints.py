@@ -268,3 +268,113 @@ def test_npc_deliberate_invalid_output_uses_deterministic_fallback() -> None:
     assert deliberation["usedFallback"] is True
     assert [step["primitiveType"] for step in deliberation["steps"]] == ["perform_work", "idle_home"]
     assert deliberation["steps"][0]["targetId"] == "mill"
+
+
+def test_npc_deliberate_fallback_prefers_location_when_no_work_targets() -> None:
+    body = {
+        "model": "llama3.2",
+        "npcId": "worker_2",
+        "goal": "patrol nearby",
+        "targets": {
+            "locationIds": ["plaza"],
+            "npcIds": ["worker_2", "merchant_1"],
+            "workIds": [],
+        },
+    }
+    with _client("<<invalid>>") as client:
+        data = client.post("/v1/npc/deliberate", json=body).json()
+    assert data["ok"] is True
+    deliberation = data["deliberation"]
+    assert deliberation["usedFallback"] is True
+    assert [step["primitiveType"] for step in deliberation["steps"]] == ["goto_location", "wait_at"]
+    assert deliberation["steps"][0]["targetId"] == "plaza"
+
+
+def test_npc_deliberate_strict_contract_rejects_unknown_root_field() -> None:
+    body = {
+        "model": "llama3.2",
+        "npcId": "worker_3",
+        "goal": "do work",
+        "targets": {"locationIds": ["plaza"]},
+        "unexpectedField": True,
+    }
+    with _client('{"steps": []}') as client:
+        response = client.post("/v1/npc/deliberate", json=body)
+    assert response.status_code == 422
+
+
+def test_dialogue_summary_success_normalizes_shift_and_lists() -> None:
+    body = {
+        "model": "llama3.2",
+        "npcId": "merchant",
+        "turns": [{"role": "user", "content": "hello"}],
+    }
+    reply = (
+        '{"summary":"Merchant trusts the hero more.",'
+        '"learnedFacts":["hero returned ledger"],'
+        '"openThreads":["deliver spices"],'
+        '"relationshipShift":"positive"}'
+    )
+    with _client(reply) as client:
+        data = client.post("/v1/dialogue/summary", json=body).json()
+    assert data["ok"] is True
+    summary = data["summary"]
+    assert summary["summary"] == "Merchant trusts the hero more."
+    assert summary["learnedFacts"] == ["hero returned ledger"]
+    assert summary["openThreads"] == ["deliver spices"]
+    assert summary["relationshipShift"] == "positive"
+
+
+def test_dialogue_summary_unparseable_returns_summary_failed() -> None:
+    body = {
+        "model": "llama3.2",
+        "npcId": "merchant",
+        "turns": [{"role": "user", "content": "hello"}],
+    }
+    with _client("not json") as client:
+        data = client.post("/v1/dialogue/summary", json=body).json()
+    assert data["ok"] is False
+    assert data["error"]["code"] == "summary_failed"
+
+
+def test_narrative_generate_rejects_route_budget_violations() -> None:
+    body = {
+        "model": "llama3.2",
+        "seed": 42,
+        "fallbackCanonJson": (
+            '{"schemaVersion":1,"sessionId":"s1","seed":42,"premiseId":"p1","worldId":"w1",'
+            '"summary":"x","finalObjective":"y","routesByMilestone":{"m1":2}}'
+        ),
+    }
+    reply = (
+        '{"schemaVersion":1,"sessionId":"s1","seed":0,"premiseId":"p1","worldId":"w1",'
+        '"summary":"x","finalObjective":"y","routesByMilestone":{"m1":1}}'
+    )
+    with _client(reply) as client:
+        data = client.post("/v1/narrative/generate", json=body).json()
+    assert data["ok"] is False
+    assert data["error"]["code"] == "narrative_invalid"
+
+
+def test_narrative_generate_success_for_valid_routes() -> None:
+    body = {
+        "model": "llama3.2",
+        "seed": 99,
+        "fallbackCanonJson": (
+            '{"schemaVersion":1,"sessionId":"s2","seed":99,"premiseId":"p2","worldId":"w2",'
+            '"summary":"x","finalObjective":"y","routesByMilestone":{"m1":2}}'
+        ),
+    }
+    reply = (
+        '{"schemaVersion":1,"sessionId":"s2","seed":0,"premiseId":"p2","worldId":"w2",'
+        '"summary":"A coherent island mystery.","finalObjective":"Solve the mystery",'
+        '"openingIntroLines":["Line 1"],"globalKnowledge":["fact"],'
+        '"victorySequence":["step"],"criticalMilestones":["m1"],'
+        '"routesByMilestone":{"m1":2},"tradeRequirements":[]}'
+    )
+    with _client(reply) as client:
+        data = client.post("/v1/narrative/generate", json=body).json()
+    assert data["ok"] is True
+    narrative = data["narrative"]
+    assert narrative["schemaVersion"] == 1
+    assert '"seed":99' in narrative["canonJson"]

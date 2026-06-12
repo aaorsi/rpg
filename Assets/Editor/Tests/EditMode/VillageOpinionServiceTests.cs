@@ -71,5 +71,41 @@ namespace Rpg.Npc.Tests.EditMode
             var cAfterSecond = service.GetSummary("villager_c").OpinionTowardHero;
             Assert.Greater(cAfterSecond, 0f);
         }
+
+        [Test]
+        public void QueueInteraction_DeduplicatesPairsUntilProcessed()
+        {
+            var service = new VillageOpinionService();
+            service.SetParticipants(new[] { "villager_a", "villager_b", "villager_c" });
+
+            service.QueueInteraction("villager_a", "villager_b");
+            service.QueueInteraction("villager_b", "villager_a");
+            service.QueueInteraction("villager_a", "villager_b");
+            Assert.AreEqual(1, service.PendingGossipCount);
+
+            Assert.AreEqual(1, service.ProcessGossip(1));
+            Assert.AreEqual(0, service.PendingGossipCount);
+
+            service.QueueInteraction("villager_b", "villager_a");
+            Assert.AreEqual(1, service.PendingGossipCount);
+        }
+
+        [Test]
+        public void BuildDeliberationContext_ReportsSignedTracksAndPendingCount()
+        {
+            var service = new VillageOpinionService();
+            service.SetParticipants(new[] { "villager_a", "villager_b" });
+            service.ApplyHeroImpact("villager_a", 12f, 8f, -4f, 2f, 0f);
+            service.ApplyHeroImpact("villager_b", -2f, 0f, 6f, -2f, 2f);
+            service.QueueInteraction("villager_a", "villager_b");
+
+            var lines = service.BuildDeliberationContext("villager_a");
+
+            Assert.GreaterOrEqual(lines.Count, 3);
+            StringAssert.Contains("leadership +4.0", lines[0]);
+            StringAssert.Contains("piety +1.0", lines[0]);
+            StringAssert.Contains("Local opinion for villager_a toward hero: +12.0", lines[1]);
+            StringAssert.Contains("Pending gossip interactions: 1.", lines[2]);
+        }
     }
 }
