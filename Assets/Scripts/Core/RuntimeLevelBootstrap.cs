@@ -1012,6 +1012,7 @@ namespace Rpg.Core
             var npcTemplate = Resources.Load<NpcDefinition>("NpcDefs/default");
             if (npcTemplate == null)
                 Debug.LogWarning($"[{nameof(RuntimeLevelBootstrap)}] Village NPC template not found; villagers will use BuildNpcSingle defaults.");
+            var personaRepo = new NpcPersonaRepository();
 
             var shuffledNames = new List<string>(VillagerNamePool);
             ShuffleList(shuffledNames);
@@ -1077,6 +1078,7 @@ namespace Rpg.Core
                         var displayName = i < shuffledNames.Count ? shuffledNames[i] : $"Villager {i + 1}";
                         if (npcTemplate != null)
                             binding.SetDefinition(CreateVillagerRuntimeDefinition(npcTemplate, displayName, npcIndex, villageReferenceHouseIndex));
+                        EnrichBindingWithPersona(binding, personaRepo, "normal");
                     }
 
                     if (spawnedNpc.GetComponent<VillagerAmbientRoutine>() == null)
@@ -1232,6 +1234,15 @@ namespace Rpg.Core
                 "I can share what I know about people and places nearby."
             };
             return def;
+        }
+
+        static void EnrichBindingWithPersona(NpcDialogueBinding binding, NpcPersonaRepository personaRepo, string npcTypeHint)
+        {
+            if (binding == null || personaRepo == null || binding.Definition == null)
+                return;
+            var persona = personaRepo.LoadOrCreate(binding.Definition, npcTypeHint);
+            if (persona != null)
+                binding.SetPersona(persona);
         }
 
         static void LogHouseNpcShuffleOrder(string allocTag, List<GameObject> npcs)
