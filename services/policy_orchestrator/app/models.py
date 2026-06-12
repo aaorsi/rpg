@@ -116,6 +116,29 @@ class NarrativeGenerationRequest(StrictCamelModel):
     provider_base_url: Optional[str] = None
 
 
+class NpcPersonaSeed(StrictCamelModel):
+    npc_id: str
+    name: str = ""
+    npc_type: NpcType = NpcType.NORMAL
+    archetype_id: str = ""
+    archetype_occupation: str = ""
+    archetype_personality: str = ""
+    archetype_social_traits: Dict[str, str] = Field(default_factory=dict)
+    key_information_hints: List[str] = Field(default_factory=list)
+    goal_hints: List[str] = Field(default_factory=list)
+    capability_hints: List[str] = Field(default_factory=list)
+    follower_recruitment_hints: List[str] = Field(default_factory=list)
+
+
+class NpcPersonaGenerationRequest(StrictCamelModel):
+    schema_version: int = SCHEMA_VERSION
+    request_id: str = ""
+    model: str
+    npcs: List[NpcPersonaSeed] = Field(default_factory=list, min_length=1)
+    api_token: Optional[str] = None
+    provider_base_url: Optional[str] = None
+
+
 # --- LLM-output single source of truth --------------------------------------
 # These mirror Assets/StreamingAssets/Dialogue/schema/*.schema.json, which are
 # generated from these models via scripts/generate_schemas.py.
@@ -201,6 +224,26 @@ class NarrativeGenerationResponse(CamelModel):
     raw_assistant: str = ""
 
 
+class GeneratedNpcPersona(CamelModel):
+    npc_id: str
+    name: str = ""
+    npc_type: str = NpcType.NORMAL.value
+    occupation: str = ""
+    personality: str = ""
+    social_traits: Dict[str, str] = Field(default_factory=dict)
+    key_information: List[str] = Field(default_factory=list)
+    goals: List[str] = Field(default_factory=list)
+    capabilities: List[str] = Field(default_factory=list)
+    follower_recruitment_requirements: List[str] = Field(default_factory=list)
+
+
+class NpcPersonaGenerationResponse(CamelModel):
+    schema_version: int = SCHEMA_VERSION
+    request_id: str = ""
+    personas: List[GeneratedNpcPersona] = Field(default_factory=list)
+    raw_assistant: str = ""
+
+
 class PolicyError(CamelModel):
     code: str
     message: str
@@ -212,10 +255,11 @@ class PolicyEnvelope(CamelModel):
     dialogue: Optional[DialogueTurnResponse] = None
     summary: Optional[ConversationSummaryResponse] = None
     narrative: Optional[NarrativeGenerationResponse] = None
+    persona: Optional[NpcPersonaGenerationResponse] = None
 
     @model_validator(mode="after")
     def _check_payload(self) -> "PolicyEnvelope":
-        payloads = [self.dialogue, self.summary, self.narrative]
+        payloads = [self.dialogue, self.summary, self.narrative, self.persona]
         if self.ok and not any(payloads):
             raise ValueError("Successful envelope must include a payload.")
         if not self.ok and self.error is None:

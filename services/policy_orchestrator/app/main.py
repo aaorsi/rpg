@@ -10,6 +10,7 @@ from .models import (
     ConversationSummaryRequest,
     DialogueTurnRequest,
     NarrativeGenerationRequest,
+    NpcPersonaGenerationRequest,
     PolicyEnvelope,
 )
 from .ollama_adapter import OllamaAdapter
@@ -63,3 +64,11 @@ async def narrative_generate(
     orchestrator: PolicyOrchestrator = Depends(get_orchestrator),
 ) -> PolicyEnvelope:
     return await orchestrator.run_narrative_generation(request)
+
+
+@app.post("/v1/npc/persona/generate", response_model=PolicyEnvelope)
+async def npc_persona_generate(
+    request: NpcPersonaGenerationRequest,
+    orchestrator: PolicyOrchestrator = Depends(get_orchestrator),
+) -> PolicyEnvelope:
+    return await orchestrator.run_npc_persona_generation(request)

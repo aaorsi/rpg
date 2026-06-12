@@ -7,6 +7,7 @@ Local sidecar service that centralizes LLM prompt orchestration, NPC type policy
 - `POST /v1/dialogue/turn`
 - `POST /v1/dialogue/summary`
 - `POST /v1/narrative/generate`
+- `POST /v1/npc/persona/generate`
 - `GET /healthz`
 
 ## Run locally

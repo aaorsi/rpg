@@ -34,6 +34,7 @@ namespace Rpg.Dialogue
         NpcMemoryRepository _memory;
         NpcDialogueTranscriptRepository _transcriptRepo;
         NpcSummaryRepository _summaryRepo;
+        NpcPersonaRepository _personaRepo;
         DialogueSession _session;
         NpcDefinition _activeNpc;
         bool _dialogueOpen;
@@ -184,6 +185,7 @@ namespace Rpg.Dialogue
             _memory = memoryRepository ?? new NpcMemoryRepository();
             _transcriptRepo = transcriptRepository ?? new NpcDialogueTranscriptRepository();
             _summaryRepo = new NpcSummaryRepository();
+            _personaRepo = new NpcPersonaRepository();
             _ollamaSettings = settings;
             _promptComposer = composer ?? new PromptComposer(null, _memory);
             _ollamaClient = new OllamaClient(_ollamaSettings);
@@ -201,6 +203,7 @@ namespace Rpg.Dialogue
             _runtimeGenerationSeed = ComputeStableSessionSeed();
             _narrativeCanon = _generationService.BuildFallback(_runtimeGenerationSeed, _refsSnapshotNpcIds());
             RefreshNarrativeWiring();
+            EnsureNpcPersonaBindings();
             NpcChickenTheftConfrontation.EnsureOnAllNpcBindings();
         }
 
@@ -697,6 +700,104 @@ namespace Rpg.Dialogue
             return profile != null;
         }
 
+        void EnsureNpcPersonaBindings()
+        {
+            if (_personaRepo == null)
+                return;
+            foreach (var binding in UnityEngine.Object.FindObjectsByType<NpcDialogueBinding>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
+            {
+                if (binding == null || binding.Definition == null || string.IsNullOrWhiteSpace(binding.Definition.npcId))
+                    continue;
+                var persona = _personaRepo.LoadOrCreate(binding.Definition, ResolveNpcType(binding.Definition.npcId));
+                if (persona != null)
+                    binding.SetPersona(persona);
+            }
+        }
+
+        NpcPersona ResolveOrCreatePersona(NpcDefinition npc, GeneratedNpcProfile profile)
+        {
+            if (npc == null || _personaRepo == null)
+                return null;
+
+            var npcId = string.IsNullOrWhiteSpace(npc.npcId) ? string.Empty : npc.npcId.Trim();
+            foreach (var binding in UnityEngine.Object.FindObjectsByType<NpcDialogueBinding>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
+            {
+                if (binding == null || binding.Definition == null || string.IsNullOrWhiteSpace(binding.Definition.npcId))
+                    continue;
+                if (!string.Equals(binding.Definition.npcId.Trim(), npcId, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (binding.Persona != null)
+                    return binding.Persona;
+            }
+
+            var persona = _personaRepo.LoadOrCreate(npc, ResolveNpcType(npcId));
+            if (persona == null)
+                return null;
+
+            if (profile != null)
+            {
+                if (string.IsNullOrWhiteSpace(persona.personality) && !string.IsNullOrWhiteSpace(profile.personality))
+                    persona.personality = profile.personality.Trim();
+                if ((persona.socialTraits == null || persona.socialTraits.Count == 0) && profile.socialTraits != null && profile.socialTraits.Count > 0)
+                    persona.socialTraits = new Dictionary<string, string>(profile.socialTraits);
+                if ((persona.goals == null || persona.goals.Count == 0) && profile.goals != null && profile.goals.Count > 0)
+                    persona.goals = new List<string>(profile.goals);
+                if ((persona.capabilities == null || persona.capabilities.Count == 0) && profile.capabilities != null && profile.capabilities.Count > 0)
+                    persona.capabilities = new List<string>(profile.capabilities);
+            }
+
+            _personaRepo.Save(persona);
+            return persona;
+        }
+
+        static string ResolveNpcType(string npcId)
+        {
+            if (GhoulMenaceController.IsGhoulStoryNpcId(npcId))
+                return "ghoul";
+            return SidekickCompanion.BindingRootHasSidekick(npcId) ? "sidekick" : "normal";
+        }
+
+        static string ResolvePersonality(GeneratedNpcProfile profile, NpcPersona persona)
+        {
+            if (profile != null && !string.IsNullOrWhiteSpace(profile.personality))
+                return profile.personality.Trim();
+            return persona != null && !string.IsNullOrWhiteSpace(persona.personality)
+                ? persona.personality.Trim()
+                : string.Empty;
+        }
+
+        static Dictionary<string, string> ResolveSocialTraits(GeneratedNpcProfile profile, NpcPersona persona)
+        {
+            if (profile != null && profile.socialTraits != null && profile.socialTraits.Count > 0)
+                return new Dictionary<string, string>(profile.socialTraits);
+            return persona != null && persona.socialTraits != null
+                ? new Dictionary<string, string>(persona.socialTraits)
+                : new Dictionary<string, string>();
+        }
+
+        static List<string> ResolveGoals(GeneratedNpcProfile profile, NpcPersona persona)
+        {
+            if (profile != null && profile.goals != null && profile.goals.Count > 0)
+                return new List<string>(profile.goals);
+            return persona != null && persona.goals != null
+                ? new List<string>(persona.goals)
+                : new List<string>();
+        }
+
+        static List<string> ResolveCapabilities(GeneratedNpcProfile profile, NpcPersona persona, string npcType)
+        {
+            if (profile != null && profile.capabilities != null && profile.capabilities.Count > 0)
+                return new List<string>(profile.capabilities);
+            if (persona != null && persona.capabilities != null && persona.capabilities.Count > 0)
+                return new List<string>(persona.capabilities);
+
+            return npcType == "sidekick"
+                ? new List<string> { "dialogue", "follow_hero", "give", "trade" }
+                : npcType == "ghoul"
+                    ? new List<string> { "dialogue" }
+                    : new List<string> { "dialogue", "give", "trade", "guide_to_location", "refer_to_npc" };
+        }
+
         bool TryHandleNarrativeDebugCommand(string line)
         {
             if (string.IsNullOrWhiteSpace(line) || !line.StartsWith("/", StringComparison.Ordinal))
@@ -1047,6 +1148,7 @@ namespace Rpg.Dialogue
             if (_ollamaSettings.usePythonPolicyOrchestrator && _pythonClient != null && _activeNpc != null)
             {
                 TryGetNpcProfile(_activeNpc.npcId, out var profile);
+                var persona = ResolveOrCreatePersona(_activeNpc, profile);
                 var type = GhoulMenaceController.IsGhoulStoryNpcId(_activeNpc.npcId)
                     ? "ghoul"
                     : (SidekickCompanion.BindingRootHasSidekick(_activeNpc.npcId) ? "sidekick" : "normal");
@@ -1064,12 +1166,10 @@ namespace Rpg.Dialogue
                         roleSummary = _activeNpc.roleSummary ?? string.Empty,
                         toneAndVocabulary = _activeNpc.toneAndVocabulary ?? string.Empty,
                         safetyRules = _activeNpc.safetyRules ?? string.Empty,
-                        personality = profile != null ? profile.personality ?? string.Empty : string.Empty,
-                        socialTraits = profile != null && profile.socialTraits != null
-                            ? new Dictionary<string, string>(profile.socialTraits)
-                            : new Dictionary<string, string>(),
-                        goals = profile != null && profile.goals != null ? new List<string>(profile.goals) : new List<string>(),
-                        capabilities = profile != null && profile.capabilities != null ? new List<string>(profile.capabilities) : new List<string>()
+                        personality = ResolvePersonality(profile, persona),
+                        socialTraits = ResolveSocialTraits(profile, persona),
+                        goals = ResolveGoals(profile, persona),
+                        capabilities = ResolveCapabilities(profile, persona, type)
                     },
                     turn = new PythonTurnContextDto
                     {
