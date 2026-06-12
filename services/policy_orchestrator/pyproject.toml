@@ -1,0 +1,9 @@
+[project]
+name = "rpg-policy-orchestrator"
+version = "1.0.0"
+description = "Local sidecar for LLM prompt orchestration, NPC policy enforcement, and payload validation."
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

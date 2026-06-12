@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "npcKnowledge": [
+    {
+      "npcId": "npc_1_mara",
+      "npcType": "normal",
+      "uniqueKnowledge": [
+        "A magic book is hidden near the warehouse site.",
+        "Locals avoid the toxic shoreline even during daylight.",
+        "There is a Ghoul guarding the castle, a hero alone cannot defeat it"
+      ],
+      "preferredGoals": [
+        "Help the hero if the hero protects nearby residents."
+      ],
+      "followerRecruitmentRequirements": []
+    },
+    {
+      "npcId": "npc_2_dorian",
+      "npcType": "sidekick",
+      "uniqueKnowledge": [
+        "A portal rumor is true: it appears in the castle interior.",
+        "The Ghoul becomes more aggressive when approached alone.",
+        "Magic is stored in books, and a circle of three or more can unleash the strongest spell."
+      ],
+      "preferredGoals": [
+        "Secure better tools through barter.",
+        "Send the hero toward NPCs who can become followers."
+      ],
+      "followerRecruitmentRequirements": [
+        "Needs verbal reassurance that the hero has a clear plan for the castle.",
+        "May require receiving lantern_v2 or another practical survival item."
+      ]
+    },
+    {
+      "npcId": "npc_3_lucia",
+      "npcType": "sidekick",
+      "uniqueKnowledge": [
+        "The castle route is safer when traveling with companions.",
+        "The village is a dangerous place but there may be one of the magic books there.",
+        "Books carry magic, and when at least three magicians join power, their spell reaches its peak."
+      ],
+      "preferredGoals": [
+        "Push the hero toward alliance-building choices."
+      ],
+      "followerRecruitmentRequirements": [
+        "Responds to persuasion that followers are essential for surviving the Ghoul fight."
+      ]
+    }
+  ]
+}

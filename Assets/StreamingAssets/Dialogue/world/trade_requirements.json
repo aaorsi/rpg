@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "requirements": [
+    {
+      "id": "trade_magic_book",
+      "ownerNpcId": "npc_1_mara",
+      "givesItemId": "book_v1",
+      "wantsItemId": "knife_v1",
+      "unlocks": "Clue path to castle gate approach",
+      "notes": "Hero must secure blade first, then negotiate for book."
+    },
+    {
+      "id": "trade_portal_core",
+      "ownerNpcId": "npc_2_dorian",
+      "givesItemId": "portal_core",
+      "wantsItemId": "lantern_v2",
+      "unlocks": "Portal activation preparation",
+      "notes": "Critical trade before final castle sequence."
+    },
+    {
+      "id": "trade_support_supply",
+      "ownerNpcId": "npc_3_lucia",
+      "givesItemId": "pile_of_wood_v1",
+      "wantsItemId": "sack_v1",
+      "unlocks": "Follower recruitment confidence boost",
+      "notes": "Optional route support for alliance milestone."
+    }
+  ]
+}

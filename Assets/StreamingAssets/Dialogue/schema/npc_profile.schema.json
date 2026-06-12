@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GeneratedNpcProfile",
+  "type": "object",
+  "required": ["npcId", "name", "occupation", "personality", "socialTraits", "keyInformation", "goals"],
+  "properties": {
+    "npcId": { "type": "string" },
+    "name": { "type": "string" },
+    "race": { "type": "string" },
+    "sex": { "type": "string" },
+    "age": { "type": "string" },
+    "occupation": { "type": "string" },
+    "personality": { "type": "string" },
+    "socialTraits": { "type": "object", "additionalProperties": { "enum": ["low", "medium", "high"] } },
+    "keyInformation": { "type": "array", "items": { "type": "string" } },
+    "goals": { "type": "array", "items": { "type": "string" } }
+  }
+}

@@ -1,0 +1,97 @@
+{
+  "$defs": {
+    "ProposedAction": {
+      "properties": {
+        "actionType": {
+          "default": "",
+          "title": "Actiontype",
+          "type": "string"
+        },
+        "notes": {
+          "default": "",
+          "title": "Notes",
+          "type": "string"
+        },
+        "quantity": {
+          "default": 1.0,
+          "title": "Quantity",
+          "type": "number"
+        },
+        "targetId": {
+          "default": "",
+          "title": "Targetid",
+          "type": "string"
+        }
+      },
+      "title": "ProposedAction",
+      "type": "object"
+    }
+  },
+  "description": "Canonical shape the dialogue model must emit (dialogue_turn_result.schema.json).",
+  "properties": {
+    "ackYear": {
+      "default": false,
+      "title": "Ackyear",
+      "type": "boolean"
+    },
+    "interactionOutcome": {
+      "default": "unspecified",
+      "enum": [
+        "reject",
+        "partial",
+        "cooperate",
+        "counter_offer",
+        "defer",
+        "menace_flavor",
+        "unspecified"
+      ],
+      "title": "Interactionoutcome",
+      "type": "string"
+    },
+    "memoriesToAdd": {
+      "items": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "title": "Memoriestoadd",
+      "type": "array"
+    },
+    "milestoneSignals": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Milestonesignals",
+      "type": "array"
+    },
+    "proposedNpcActions": {
+      "items": {
+        "$ref": "#/$defs/ProposedAction"
+      },
+      "title": "Proposednpcactions",
+      "type": "array"
+    },
+    "say": {
+      "title": "Say",
+      "type": "string"
+    },
+    "stateDeltas": {
+      "additionalProperties": {
+        "enum": [
+          "down",
+          "steady",
+          "up"
+        ],
+        "type": "string"
+      },
+      "title": "Statedeltas",
+      "type": "object"
+    }
+  },
+  "required": [
+    "say"
+  ],
+  "title": "LlmDialogueOutput",
+  "type": "object"
+}

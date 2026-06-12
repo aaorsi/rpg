@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "finalObjective": "Assemble the required allies and key items, defeat the giant Ghoul in the castle, and enter the portal to escape.",
+  "victorySequence": [
+    "Trade and negotiate with NPCs to gather critical items.",
+    "Recruit cooperative NPC followers for the castle approach.",
+    "Travel with followers to the castle grounds.",
+    "Defeat the giant Ghoul guarding the portal.",
+    "Reach and activate the portal to finish the run."
+  ],
+  "milestones": [
+    {
+      "id": "m_trade_chain",
+      "title": "Complete the trade chain for key progress items",
+      "description": "Obtain the specific items needed for castle access and Ghoul preparation by negotiating with NPCs.",
+      "requiredRouteCount": 2
+    },
+    {
+      "id": "m_followers",
+      "title": "Recruit enough followers to approach the castle",
+      "description": "Earn trust and cooperation from sidekicks and allied NPCs who will travel with the hero.",
+      "requiredRouteCount": 2
+    },
+    {
+      "id": "m_castle_push",
+      "title": "Lead the castle push and defeat the Ghoul",
+      "description": "Coordinate the final approach, survive the castle route, and remove the Ghoul threat.",
+      "requiredRouteCount": 2
+    }
+  ]
+}

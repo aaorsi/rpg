@@ -1,0 +1,210 @@
+[
+  {
+    "schemaVersion": 1,
+    "worldId": "crownwatch_island",
+    "title": "Crownwatch Island",
+    "openingBackstory": "Crownwatch was once a thriving island village until toxic tides and roaming monsters shattered normal life. The castle became a forbidden zone after a giant Ghoul emerged, and the only known portal now lies behind that danger.",
+    "sharedFacts": [
+      "The island has roaming monsters that threaten travel routes.",
+      "Deep and open water around the island is toxic to travelers.",
+      "The old castle is considered haunted and highly dangerous.",
+      "A giant Ghoul controls the castle approaches.",
+      "A portal exists in the castle interior and is believed to be a way out.",
+      "The village used to be peaceful before the toxic tides and monster surge.",
+      "NPCs are wary of outsiders but willing to negotiate when trust is earned.",
+      "People survive by trading tools, clues, and favors.",
+      "Going to the castle alone is considered a death sentence.",
+      "Followers increase survival odds on castle approach routes.",
+      "Only the strongest magic could defeat the Ghoul of the castle"
+    ]
+  },
+  {
+    "schemaVersion": 1,
+    "worldId": "stormbound_island",
+    "title": "Stormbound Island",
+    "openingBackstory": "Stormbound was once known for safe harbors and steady trade, but poisoned waters and violent monster activity broke the island into fearful enclaves. Since a giant Ghoul claimed the castle grounds, the portal inside has become a distant hope rather than a usable escape.",
+    "sharedFacts": [
+      "Monster sightings increase near isolated roads and ruined structures.",
+      "The sea surrounding the island is unsafe because the deeper water is toxic.",
+      "The castle hill is avoided by most villagers, even during daylight.",
+      "A giant Ghoul is believed to command or attract lesser monsters near the castle.",
+      "A portal flickers somewhere inside the castle interior.",
+      "The island once relied on trade between small settlements and fishing households.",
+      "Most people will share limited help if they believe it improves their own chances.",
+      "Barter is more reliable than money on the island.",
+      "Travel plans usually depend on who is willing to go with you.",
+      "No widely trusted route to the portal exists while the Ghoul remains alive."
+      "Going to the castle alone is considered a death sentence.",
+      "Followers increase survival odds on castle approach routes.",
+      "Only the strongest magic could defeat the Ghoul of the castle"
+    ]
+  },
+  {
+    "schemaVersion": 1,
+    "worldId": "ember_tide_island",
+    "title": "Embertide Island",
+    "openingBackstory": "Embertide was a hardy island community built around farming, scavenging, and old stone roads, but toxic tides and prowling monsters made ordinary life unstable. The castle fell into fear and legend after a giant Ghoul took control of its approaches and cut people off from the portal within.",
+    "sharedFacts": [
+      "Monsters make movement between settlements dangerous, especially at night.",
+      "The open shoreline and deep water are known to be toxic.",
+      "The castle is viewed as the center of the island's worst dangers.",
+      "A giant Ghoul blocks safe access to the castle interior.",
+      "The portal inside the castle is said to be the only path off the island.",
+      "Life on the island used to revolve around work, trade, and local routines.",
+      "People tend to test strangers before offering trust.",
+      "Food, tools, and information are all traded as valuable resources.",
+      "Groups are far more likely to survive a castle expedition than lone travelers.",
+      "Many believe the island cannot recover unless the Ghoul is defeated.",
+      "Going to the castle alone is considered a death sentence.",
+      "Followers increase survival odds on castle approach routes.",
+      "Only the strongest magic could defeat the Ghoul of the castle"
+    ]
+  },
+  {
+    "schemaVersion": 1,
+    "worldId": "moonreef_island",
+    "title": "Moonreef Island",
+    "openingBackstory": "Moonreef was once a lively island of homes, animals, and shared festivals, but toxic tides and roaming monsters pushed everyone into caution. Since the giant Ghoul settled near the castle, the portal inside has become both the island's greatest hope and its most feared destination.",
+    "sharedFacts": [
+      "Roaming monsters have made familiar footpaths unreliable.",
+      "The waters beyond the safer edges of shore are toxic.",
+      "The castle is widely believed to be cursed, haunted, or both.",
+      "A giant Ghoul dominates the routes leading up to the castle.",
+      "A portal is hidden somewhere inside the castle halls.",
+      "Older residents remember a more peaceful island before recent disasters.",
+      "Most islanders prefer negotiation over open conflict when possible.",
+      "Trading favors can matter as much as trading physical goods.",
+      "Very few people are willing to approach the castle without support.",
+      "Companions improve the chance of surviving both monsters and betrayal.",
+      "Going to the castle alone is considered a death sentence.",
+      "Followers increase survival odds on castle approach routes.",
+      "Only the strongest magic could defeat the Ghoul of the castle"
+    ]
+  },
+  {
+    "schemaVersion": 1,
+    "worldId": "graven_harbour",
+    "title": "Graven Harbour",
+    "openingBackstory": "Graven Harbour was once stern but stable, held together by trade and tradition, until toxic tides and monsters turned the island inward. When a giant Ghoul claimed the castle approaches, the portal inside became a forbidden promise that no one could safely reach.",
+    "sharedFacts": [
+      "Monsters now influence when and how people travel across the island.",
+      "The surrounding deep water is poisoned and cannot be trusted.",
+      "The castle is considered a place of death, secrets, and bad luck.",
+      "A giant Ghoul is the main reason expeditions to the castle fail.",
+      "The portal within the castle is believed to lead out of the island crisis.",
+      "The island's old routines collapsed after the tides became toxic.",
+      "Islanders respect caution and distrust reckless strangers.",
+      "Supplies are often exchanged through negotiation rather than charity.",
+      "Anyone marching on the castle alone is assumed to be desperate or doomed.",
+      "Bringing followers is treated as practical survival, not heroism.",
+      "Going to the castle alone is considered a death sentence.",
+      "Followers increase survival odds on castle approach routes.",
+      "Only the strongest magic could defeat the Ghoul of the castle"
+    ]
+  },
+  {
+    "schemaVersion": 1,
+    "worldId": "statue_watch_isle",
+    "title": "Statuewatch Isle",
+    "openingBackstory": "Statuewatch was once a proud island settlement built beneath towering monuments, but toxic waters and monsters turned those landmarks into reminders of decline. The castle became untouchable after a giant Ghoul took the grounds, leaving the portal inside just beyond reach.",
+    "sharedFacts": [
+      "Monsters patrol enough of the island to disrupt normal travel.",
+      "The sea is not a safe escape because open water is toxic.",
+      "The giant statues are old, important, and surrounded by superstition.",
+      "The castle is feared more than any other place on the island.",
+      "A giant Ghoul guards or controls access to the castle approaches.",
+      "The portal inside the castle is common knowledge, even if few have seen it directly.",
+      "People remember when the island's dangers were manageable.",
+      "Outsiders can earn cooperation if they prove useful or trustworthy.",
+      "Trade networks now revolve around survival needs and local alliances.",
+      "Castle expeditions are planned around numbers, equipment, and mutual trust.",
+      "Going to the castle alone is considered a death sentence.",
+      "Followers increase survival odds on castle approach routes.",
+      "Only the strongest magic could defeat the Ghoul of the castle"
+    ]
+  },
+  {
+    "schemaVersion": 1,
+    "worldId": "tidebreak_isle",
+    "title": "Tidebreak Isle",
+    "openingBackstory": "Tidebreak once depended on sea access and village exchange, but toxic tides severed those patterns and monsters filled the gaps left behind. The giant Ghoul's rise at the castle turned the portal within from a resource into a deadly objective.",
+    "sharedFacts": [
+      "Monsters are a constant hazard on roads, fields, and outer routes.",
+      "The island cannot be safely left by sea because the surrounding water is toxic.",
+      "The castle has become a forbidden zone for ordinary people.",
+      "The giant Ghoul is the main obstacle between survivors and the portal.",
+      "The portal inside the castle is seen as the best chance of escape.",
+      "Many households survive only because of repeated trade and exchange.",
+      "Suspicion is normal, but open hostility can soften after successful dealings.",
+      "Knowledge about routes and supplies is treated as valuable currency.",
+      "Going alone toward the castle is widely seen as suicidal.",
+      "Groups with followers are more likely to survive monster territory.",
+      "Going to the castle alone is considered a death sentence.",
+      "Followers increase survival odds on castle approach routes.",
+      "Only the strongest magic could defeat the Ghoul of the castle"
+    ]
+  },
+  {
+    "schemaVersion": 1,
+    "worldId": "blacksalt_island",
+    "title": "Blacksalt Island",
+    "openingBackstory": "Blacksalt was once known for rough but dependable village life, until toxic tides blackened the coastline and monsters made distance dangerous. When the giant Ghoul seized the castle approaches, the portal inside became the focus of fear, rumor, and desperate plans.",
+    "sharedFacts": [
+      "Monsters have made many direct routes unusable or unpredictable.",
+      "The dark open water around the island is toxic and feared.",
+      "The castle is considered both haunted and strategically important.",
+      "A giant Ghoul stands between most people and the portal inside the castle.",
+      "The portal is widely believed to be real, even if details about it vary.",
+      "The island used to function through routine labor, trade, and community ties.",
+      "Most NPCs value caution, reciprocity, and proof of intent.",
+      "Trade often includes weapons, medicine, food, clues, and favors.",
+      "Few people believe a single fighter can solve the castle problem alone.",
+      "Allies matter because monsters, distance, and uncertainty compound the risk.",
+      "Going to the castle alone is considered a death sentence.",
+      "Followers increase survival odds on castle approach routes.",
+      "Only the strongest magic could defeat the Ghoul of the castle"
+    ]
+  },
+  {
+    "schemaVersion": 1,
+    "worldId": "ashfall_key",
+    "title": "Ashfall Key",
+    "openingBackstory": "Ashfall Key endured hard seasons before, but toxic tides and roaming monsters shattered the island's balance. The castle was abandoned after a giant Ghoul made its territory there, and the portal inside remains the one path people still speak of with hope.",
+    "sharedFacts": [
+      "The island's roads are dangerous because monsters roam between safe areas.",
+      "The sea is not a practical escape route due to toxic water.",
+      "The castle is infamous for death, disappearance, and monster activity.",
+      "The giant Ghoul is known as the final barrier before the portal.",
+      "A portal exists in the castle and is believed to allow escape from the island.",
+      "Older people remember a safer time before the recent collapse.",
+      "Islanders tend to cooperate through cautious trade rather than blind trust.",
+      "Information can be as valuable as food or tools.",
+      "Approaching the castle without companions is considered foolish.",
+      "Followers improve morale, carrying capacity, and survival odds.",
+      "Going to the castle alone is considered a death sentence.",
+      "Followers increase survival odds on castle approach routes.",
+      "Only the strongest magic could defeat the Ghoul of the castle"
+    ]
+  },
+  {
+    "schemaVersion": 1,
+    "worldId": "cairn_hollow_isle",
+    "title": "Cairn Hollow Isle",
+    "openingBackstory": "Cairn Hollow was once a close island community centered on homes, livestock, and the old castle above the village, until toxic tides and monsters broke that stability. Now a giant Ghoul holds the castle approaches, and the portal inside is the island's most dangerous rumour and greatest hope.",
+    "sharedFacts": [
+      "Monsters prevent easy movement across the island.",
+      "Open water and deeper coastal routes are toxic to travelers.",
+      "The castle is old, dangerous, and associated with supernatural trouble.",
+      "A giant Ghoul has made the castle approach routes nearly impassable.",
+      "The portal inside the castle is believed to offer a way out.",
+      "The island was calmer before the tides changed and monsters increased.",
+      "Strangers are judged carefully but not always rejected.",
+      "Trading goods, services, and secrets is part of daily survival.",
+      "No sensible person attempts the castle entirely alone.",
+      "Followers are seen as essential support on any serious expedition.",
+      "Going to the castle alone is considered a death sentence.",
+      "Followers increase survival odds on castle approach routes.",
+      "Only the strongest magic could defeat the Ghoul of the castle"
+    ]
+  }
+]

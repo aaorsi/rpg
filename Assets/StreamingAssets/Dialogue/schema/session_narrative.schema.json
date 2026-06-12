@@ -1,0 +1,129 @@
+{
+  "$defs": {
+    "TradeRequirement": {
+      "properties": {
+        "givesItemId": {
+          "default": "",
+          "title": "Givesitemid",
+          "type": "string"
+        },
+        "id": {
+          "default": "",
+          "title": "Id",
+          "type": "string"
+        },
+        "notes": {
+          "default": "",
+          "title": "Notes",
+          "type": "string"
+        },
+        "ownerNpcId": {
+          "default": "",
+          "title": "Ownernpcid",
+          "type": "string"
+        },
+        "unlocks": {
+          "default": "",
+          "title": "Unlocks",
+          "type": "string"
+        },
+        "wantsItemId": {
+          "default": "",
+          "title": "Wantsitemid",
+          "type": "string"
+        }
+      },
+      "title": "TradeRequirement",
+      "type": "object"
+    }
+  },
+  "description": "Canonical session narrative (session_narrative.schema.json).",
+  "properties": {
+    "criticalMilestones": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Criticalmilestones",
+      "type": "array"
+    },
+    "finalObjective": {
+      "title": "Finalobjective",
+      "type": "string"
+    },
+    "globalKnowledge": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Globalknowledge",
+      "type": "array"
+    },
+    "openingIntroLines": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Openingintrolines",
+      "type": "array"
+    },
+    "premiseId": {
+      "title": "Premiseid",
+      "type": "string"
+    },
+    "routesByMilestone": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "title": "Routesbymilestone",
+      "type": "object"
+    },
+    "schemaVersion": {
+      "default": 1,
+      "title": "Schemaversion",
+      "type": "integer"
+    },
+    "seed": {
+      "title": "Seed",
+      "type": "integer"
+    },
+    "sessionId": {
+      "title": "Sessionid",
+      "type": "string"
+    },
+    "summary": {
+      "default": "",
+      "title": "Summary",
+      "type": "string"
+    },
+    "tradeRequirements": {
+      "items": {
+        "$ref": "#/$defs/TradeRequirement"
+      },
+      "title": "Traderequirements",
+      "type": "array"
+    },
+    "victorySequence": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Victorysequence",
+      "type": "array"
+    },
+    "worldBackstory": {
+      "default": "",
+      "title": "Worldbackstory",
+      "type": "string"
+    },
+    "worldId": {
+      "title": "Worldid",
+      "type": "string"
+    }
+  },
+  "required": [
+    "sessionId",
+    "seed",
+    "premiseId",
+    "worldId",
+    "finalObjective"
+  ],
+  "title": "SessionNarrativeCanon",
+  "type": "object"
+}

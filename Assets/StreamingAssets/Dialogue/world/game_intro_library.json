@@ -1,0 +1,115 @@
+{
+  "schemaVersion": 1,
+  "premises": [
+    {
+      "id": "transported_stranger",
+      "title": "Transported Stranger",
+      "introLines": [
+        "You wake up on an island you have never seen before.",
+        "The locals say the waters are toxic and monsters roam once the sun drops.",
+        "Rumors point to a giant Ghoul haunting the castle where an unstable portal flickers.",
+        "If you want to escape, you must trade, recruit allies, and survive the road to the castle."
+      ]
+    },
+    {
+      "id": "spoken_chosen_one",
+      "title": "Spoken Chosen One",
+      "introLines": [
+        "People stare when they see you and whisper that the promised outsider has finally arrived.",
+        "This island used to be peaceful, but monsters and poisoned tides have pushed everyone into fear.",
+        "No one can reach the castle portal while the giant Ghoul still controls the grounds.",
+        "To prove who you are, gather key items through trade, earn followers, and lead the final push."
+      ]
+    },
+    {
+      "id": "shipwreck_survivor",
+      "title": "Shipwreck Survivor",
+      "introLines": [
+        "You are the only survivor of a wreck and wash up near a strange settlement.",
+        "The islanders warn you to avoid deep water and never travel alone near monster territory.",
+        "They say a giant Ghoul blocks the castle and the portal beyond it.",
+        "Your only chance is to bargain for supplies, gather companions, and break through to the castle."
+      ]
+    },
+    {
+      "id": "banished_heir",
+      "title": "Banished Heir",
+      "introLines": [
+        "You return to the island in secret after years of exile, unsure who still remembers your name.",
+        "The villages are divided, supplies are short, and the poisoned coastline has made travel dangerous.",
+        "Whispers claim a giant Ghoul now rules the castle approaches and guards the portal inside.",
+        "To reclaim your place and escape alive, you must trade carefully, win support, and survive the march to the castle."
+      ]
+    },
+    {
+      "id": "monster_hunter_for_hire",
+      "title": "Monster Hunter For Hire",
+      "introLines": [
+        "You came to the island for coin, expecting a difficult hunt and little else.",
+        "Instead you find frightened settlements, toxic waters, and monsters pushing closer to the homes each night.",
+        "Every contract leads back to the same truth: a giant Ghoul holds the castle and the unstable portal within.",
+        "If you want your reward and a way off the island, you must bargain for gear, gather allies, and finish the hunt."
+      ]
+    },
+    {
+      "id": "forgotten_prisoner",
+      "title": "Forgotten Prisoner",
+      "introLines": [
+        "You wake in a ruined cell with no memory of how long you have been trapped on the island.",
+        "Outside, wary locals tell you the sea is poisoned and the roads are watched by monsters after dark.",
+        "They speak of a giant Ghoul that keeps the castle sealed and the portal beyond reach.",
+        "To learn who you were and find a way out, you must trade for clues, earn trust, and fight your way to the castle."
+      ]
+    },
+    {
+      "id": "scholar_of_ruins",
+      "title": "Scholar Of Ruins",
+      "introLines": [
+        "You arrived to study the island's statues and castle, but your expedition scattered before you learned the truth.",
+        "Now the people hide behind locked doors, fearing toxic tides and monsters that roam the outer paths.",
+        "Ancient notes suggest the portal in the castle can be stabilised only after the giant Ghoul is defeated.",
+        "To complete your research and escape, you must barter for relics, recruit protectors, and piece together the safest route."
+      ]
+    },
+    {
+      "id": "debtbound_messenger",
+      "title": "Debtbound Messenger",
+      "introLines": [
+        "You came carrying a sealed message, hoping to settle an old debt and leave quickly.",
+        "Instead you find an island trapped in panic, where poisoned waters cut off escape and monsters stalk the roads.",
+        "The message points toward the castle, where a giant Ghoul stands between the island and the portal inside.",
+        "To deliver what you carry and survive, you must trade for passage, choose allies wisely, and reach the castle alive."
+      ]
+    },
+    {
+      "id": "statue_marked_wanderer",
+      "title": "Statue-Marked Wanderer",
+      "introLines": [
+        "When you wake beneath one of the giant statues, the villagers recoil at the strange mark on your skin.",
+        "They say the island has changed since the waters turned foul and monsters began answering an unseen call.",
+        "Many believe the giant Ghoul at the castle is tied to the same force that stirs the portal there.",
+        "If you want answers and a chance to escape, you must trade for knowledge, gather companions, and confront what waits at the castle."
+      ]
+    },
+    {
+      "id": "last_of_the_patrol",
+      "title": "Last Of The Patrol",
+      "introLines": [
+        "You are the last survivor of a failed patrol sent to map a safe path across the island.",
+        "Your reports are useless now: homes are abandoned, the shoreline is toxic, and monsters control key routes.",
+        "Survivors insist a giant Ghoul has made the castle its lair and cut off the portal within.",
+        "To finish the mission and get out, you must trade for provisions, rally help from the settlements, and force a path to the castle."
+      ]
+    },
+    {
+      "id": "false_prophet_escapee",
+      "title": "False Prophet Escapee",
+      "introLines": [
+        "You fled a cult that claimed the island had chosen you for a sacred fate.",
+        "Beyond their camp, you discover frightened villages, poisoned waters, and monsters spreading farther each night.",
+        "Even your former captors fear the giant Ghoul that holds the castle and the unstable portal beyond it.",
+        "If you want freedom instead of destiny, you must trade for supplies, build a loyal group, and carve your own road to the castle."
+      ]
+    }
+  ]
+}

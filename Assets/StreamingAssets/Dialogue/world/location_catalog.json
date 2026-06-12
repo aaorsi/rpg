@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "locations": [
+    {
+      "id": "abandoned_village",
+      "label": "Abandoned Village",
+      "sceneAnchorName": "Old Village",
+      "interactionTags": ["gather", "meet", "inspect"]
+    },
+    {
+      "id": "lonely_tower",
+      "label": "Lonely Tower",
+      "sceneAnchorName": "Lonely Tower",
+      "interactionTags": ["investigate", "activate", "clue"]
+    },
+    {
+      "id": "castle",
+      "label": "Haunted Castle",
+      "sceneAnchorName": "Castle",
+      "interactionTags": ["investigate", "search", "quest"]
+    },
+    {
+      "id": "warehouse",
+      "label": "Warehouse",
+      "sceneAnchorName": "Warehouse",
+      "interactionTags": ["guide", "meet", "quest"]
+    }
+  ]
+}

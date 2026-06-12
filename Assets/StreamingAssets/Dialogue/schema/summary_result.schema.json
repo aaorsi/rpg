@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NpcConversationSummary",
+  "type": "object",
+  "required": ["summary", "learnedFacts", "openThreads"],
+  "properties": {
+    "summary": { "type": "string" },
+    "learnedFacts": { "type": "array", "items": { "type": "string" } },
+    "openThreads": { "type": "array", "items": { "type": "string" } },
+    "relationshipShift": { "enum": ["negative", "neutral", "positive"] }
+  }
+}

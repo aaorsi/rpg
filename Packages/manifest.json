@@ -1,0 +1,30 @@
+{
+  "dependencies": {
+    "com.unity.ai.navigation": "2.0.12",
+    "com.unity.feature.characters-animation": "1.0.0",
+    "com.unity.feature.gameplay-storytelling": "1.0.0",
+    "com.unity.feature.worldbuilding": "1.0.1",
+    "com.unity.inputsystem": "1.14.2",
+    "com.unity.multiplayer.center": "1.0.1",
+    "com.unity.nuget.newtonsoft-json": "3.2.2",
+    "com.unity.postprocessing": "3.5.4",
+    "com.unity.probuilder": "6.0.9",
+    "com.unity.shadergraph": "17.4.0",
+    "com.unity.sharp-zip-lib": "1.4.1",
+    "com.unity.ugui": "2.0.0",
+    "com.unity.modules.accessibility": "1.0.0",
+    "com.unity.modules.animation": "1.0.0",
+    "com.unity.modules.audio": "1.0.0",
+    "com.unity.modules.director": "1.0.0",
+    "com.unity.modules.imgui": "1.0.0",
+    "com.unity.modules.jsonserialize": "1.0.0",
+    "com.unity.modules.particlesystem": "1.0.0",
+    "com.unity.modules.physics": "1.0.0",
+    "com.unity.modules.ui": "1.0.0",
+    "com.unity.modules.uielements": "1.0.0",
+    "com.unity.modules.unitywebrequest": "1.0.0",
+    "com.unity.modules.unitywebrequestwww": "1.0.0",
+    "com.unity.modules.vectorgraphics": "1.0.0",
+    "com.unity.modules.wind": "1.0.0"
+  }
+}

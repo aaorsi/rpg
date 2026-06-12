@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "archetypes": [
+    {
+      "id": "cautious_trader",
+      "occupation": "Trader",
+      "personality": "Pragmatic and careful",
+      "socialTraits": {
+        "helpfulness": "medium",
+        "skepticism": "high",
+        "gullibility": "low",
+        "naivete": "low",
+        "trickery": "high",
+        "patience": "low"
+      }
+    },
+    {
+      "id": "loyal_farmer",
+      "occupation": "Farmer",
+      "personality": "Protective and disciplined",
+      "socialTraits": {
+        "helpfulness": "high",
+        "skepticism": "low",
+        "gullibility": "high",
+        "naivete": "high",
+        "trickery": "low",
+        "patience": "high"
+      }
+    },
+    {
+      "id": "theft",
+      "occupation": "Gambler",
+      "personality": "Inquisitive and a trickster",
+      "socialTraits": {
+        "helpfulness": "low",
+        "skepticism": "high",
+        "gullibility": "low",
+        "naivete": "low",
+        "trickery": "high",
+        "patience": "high"
+      }
+    }
+  ]
+}
