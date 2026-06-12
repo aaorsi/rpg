@@ -18,12 +18,17 @@ namespace Rpg.Npc
         [SerializeField] int maxGossipInteractionsPerTick = 2;
         [SerializeField] int maxPlanStepsPerDeliberation = 5;
         [SerializeField] bool logDeliberationTelemetry = true;
+        [SerializeField] bool enableAmbientNpcChatter = true;
+        [SerializeField] float ambientChatterCooldownSeconds = 5f;
+        [SerializeField] float ambientChatterPairCooldownSeconds = 16f;
+        [SerializeField, Range(0, 100)] int ambientChatterRichVariantPercent = 12;
 
         WorldStateService _worldState;
         OllamaSettings _settings;
         IVillageDeliberationTransport _transport;
         VillageDeliberationScheduler _scheduler;
         VillageOpinionService _opinionService;
+        AmbientNpcChatterService _ambientChatterService;
         readonly Dictionary<string, VillagerRuntimeState> _stateByNpcId =
             new Dictionary<string, VillagerRuntimeState>(StringComparer.OrdinalIgnoreCase);
         readonly List<string> _participantCache = new List<string>();
@@ -85,7 +90,7 @@ namespace Rpg.Npc
                 return;
 
             RefreshVillagerRegistry(nowTime);
-            QueueInteractionGossip();
+            QueueInteractionGossip(nowTime);
             _opinionService.ProcessGossip(maxGossipInteractionsPerTick);
             TryFinalizeInFlightResult();
             if (_inFlight != null)
@@ -109,6 +114,8 @@ namespace Rpg.Npc
             _scheduler = new VillageDeliberationScheduler(deliberationCadenceSeconds);
             if (_opinionService == null)
                 _opinionService = new VillageOpinionService();
+            if (_ambientChatterService == null)
+                _ambientChatterService = new AmbientNpcChatterService();
             if (_transport == null)
                 _transport = new SidecarVillageDeliberationTransport(_settings);
             _nextVillagerRefreshAt = -1f;
@@ -152,9 +159,10 @@ namespace Rpg.Npc
             _scheduler.CadenceSeconds = deliberationCadenceSeconds;
             _scheduler.SetParticipants(_participantCache);
             _opinionService.SetParticipants(_participantCache);
+            _ambientChatterService.SetParticipants(_participantCache);
         }
 
-        void QueueInteractionGossip()
+        void QueueInteractionGossip(float nowTime)
         {
             if (_opinionService == null || _stateByNpcId.Count == 0)
                 return;
@@ -169,8 +177,54 @@ namespace Rpg.Npc
                 if (string.IsNullOrWhiteSpace(state.Controller.CurrentTargetNpcId))
                     continue;
 
-                _opinionService.QueueInteraction(state.NpcId, state.Controller.CurrentTargetNpcId);
+                var targetNpcId = state.Controller.CurrentTargetNpcId;
+                _opinionService.QueueInteraction(state.NpcId, targetNpcId);
+                TryEmitAmbientNpcChatter(nowTime, state, targetNpcId);
             }
+        }
+
+        void TryEmitAmbientNpcChatter(float nowTime, VillagerRuntimeState speakerState, string targetNpcId)
+        {
+            if (!enableAmbientNpcChatter || _ambientChatterService == null || speakerState == null)
+                return;
+            if (!_stateByNpcId.TryGetValue(targetNpcId, out var targetState) || targetState == null)
+                return;
+
+            var speakerBinding = speakerState.Binding;
+            var targetBinding = targetState.Binding;
+            var speakerOpinionTowardHero = _opinionService.GetOpinionTowardHero(speakerState.NpcId);
+            if (!_ambientChatterService.TryBuildEvent(
+                    nowTime,
+                    speakerState.NpcId,
+                    targetState.NpcId,
+                    ResolveDisplayName(speakerState.NpcId, speakerBinding),
+                    ResolveDisplayName(targetState.NpcId, targetBinding),
+                    speakerBinding != null && speakerBinding.Persona != null ? speakerBinding.Persona.personality : string.Empty,
+                    targetBinding != null && targetBinding.Persona != null ? targetBinding.Persona.personality : string.Empty,
+                    speakerBinding != null && speakerBinding.Persona != null ? speakerBinding.Persona.goals : null,
+                    speakerOpinionTowardHero,
+                    ambientChatterCooldownSeconds,
+                    ambientChatterPairCooldownSeconds,
+                    ambientChatterRichVariantPercent,
+                    out var chatter))
+            {
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(chatter.Text))
+                return;
+
+            var manager = DialogueManager.Instance;
+            if (manager != null)
+                manager.ShowHudMessage(chatter.Text);
+            DialogueTelemetry.Log("VillageAmbientChatter", chatter.Text);
+        }
+
+        static string ResolveDisplayName(string npcId, NpcDialogueBinding binding)
+        {
+            if (binding != null && binding.Definition != null && !string.IsNullOrWhiteSpace(binding.Definition.displayName))
+                return binding.Definition.displayName.Trim();
+            return string.IsNullOrWhiteSpace(npcId) ? "villager" : npcId.Trim();
         }
 
         void TryFinalizeInFlightResult()
