@@ -44,6 +44,9 @@ namespace Rpg.Npc.Tests.EditMode
             var state = simulation.States["villager_001"];
             Assert.AreEqual("fallback", state.LastDeliberationSource);
             StringAssert.Contains("sidecar_failed", state.LastError);
+            var telemetry = simulation.TelemetrySnapshot;
+            Assert.AreEqual(1, telemetry.DeliberationCalls);
+            Assert.AreEqual(1, telemetry.FallbackCalls);
         }
 
         [Test]

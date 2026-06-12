@@ -4631,6 +4631,8 @@ namespace Rpg.Core
             var world = managers.AddComponent<WorldStateService>();
             var dialogue = managers.AddComponent<DialogueManager>();
             var villageSimulation = managers.AddComponent<VillageAgentSimulation>();
+            var villageAutonomyPanel = managers.AddComponent<VillageAutonomyDebugPanel>();
+            villageAutonomyPanel.Configure(villageSimulation);
 
             var uiGo = new GameObject("UICanvas");
             var ui = uiGo.AddComponent<DialogueUIController>();

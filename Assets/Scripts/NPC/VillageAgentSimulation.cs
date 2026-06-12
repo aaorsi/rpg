@@ -29,6 +29,7 @@ namespace Rpg.Npc
         VillageDeliberationScheduler _scheduler;
         VillageOpinionService _opinionService;
         AmbientNpcChatterService _ambientChatterService;
+        VillageAutonomyTelemetry _telemetry;
         readonly Dictionary<string, VillagerRuntimeState> _stateByNpcId =
             new Dictionary<string, VillagerRuntimeState>(StringComparer.OrdinalIgnoreCase);
         readonly List<string> _participantCache = new List<string>();
@@ -42,6 +43,8 @@ namespace Rpg.Npc
 
         public IReadOnlyDictionary<string, VillagerRuntimeState> States => _stateByNpcId;
         public VillageOpinionService OpinionService => _opinionService;
+        public VillageAutonomyTelemetrySnapshot TelemetrySnapshot =>
+            _telemetry != null ? _telemetry.Snapshot() : default;
 
         void Awake()
         {
@@ -101,6 +104,7 @@ namespace Rpg.Npc
             if (!_stateByNpcId.TryGetValue(npcId, out var state) || state == null)
                 return;
 
+            _telemetry?.RecordDeliberationCall();
             _inFlightNpcId = npcId;
             _inFlightReason = reason;
             _inFlight = DeliberateVillagerAsync(state, reason, CancellationToken.None);
@@ -116,6 +120,8 @@ namespace Rpg.Npc
                 _opinionService = new VillageOpinionService();
             if (_ambientChatterService == null)
                 _ambientChatterService = new AmbientNpcChatterService();
+            if (_telemetry == null)
+                _telemetry = new VillageAutonomyTelemetry();
             if (_transport == null)
                 _transport = new SidecarVillageDeliberationTransport(_settings);
             _nextVillagerRefreshAt = -1f;
@@ -343,6 +349,9 @@ namespace Rpg.Npc
             state.LastDeliberationSource = envelope != null && envelope.UsedFallback ? "fallback" : "sidecar";
             state.LastError = envelope != null ? envelope.Error ?? string.Empty : "unknown";
             state.LastDeliberatedAtUtc = DateTime.UtcNow.ToString("o");
+            if (envelope != null && envelope.UsedFallback)
+                _telemetry?.RecordFallback();
+            _telemetry?.RecordPlanCompletion(envelope != null && envelope.Success);
 
             if (plan.Count > 0 && state.Controller != null)
             {
