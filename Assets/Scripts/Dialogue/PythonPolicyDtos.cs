@@ -54,10 +54,24 @@ namespace Rpg.Dialogue
         public bool ackYear;
         public string interactionOutcome;
         public List<NpcProposedAction> proposedActions = new List<NpcProposedAction>();
+        public List<PythonSocialOutcomeDto> socialOutcomes = new List<PythonSocialOutcomeDto>();
         public List<string> milestoneSignals = new List<string>();
         public Dictionary<string, string> stateDeltas = new Dictionary<string, string>();
         public List<Dictionary<string, string>> memoriesToAdd = new List<Dictionary<string, string>>();
         public string rawAssistant;
+    }
+
+    [Serializable]
+    public sealed class PythonSocialOutcomeDto
+    {
+        public string outcomeType;
+        public string taskId;
+        public string targetNpcId;
+        public float amount;
+        public string currency;
+        public string persuasion;
+        public string adviceTopic;
+        public string notes;
     }
 
     [Serializable]

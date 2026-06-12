@@ -35,7 +35,13 @@ def test_response_serializes_camelcase() -> None:
     dumped = DialogueTurnResponse(say="hi", ack_year=True).model_dump(by_alias=True)
     assert dumped["ackYear"] is True
     assert "proposedActions" in dumped
+    assert "socialOutcomes" in dumped
     assert "rawAssistant" in dumped
+
+
+def test_response_social_outcomes_default_for_backward_compatibility() -> None:
+    response = DialogueTurnResponse.model_validate({"say": "hello"})
+    assert response.social_outcomes == []
 
 
 def test_request_accepts_camelcase_and_rejects_unknown_fields() -> None:

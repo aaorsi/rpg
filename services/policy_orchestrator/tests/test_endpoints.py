@@ -46,7 +46,10 @@ def test_dialogue_turn_success_and_policy_filtering() -> None:
     reply = (
         '{"say": "Take this", "ackYear": true, '
         '"proposedNpcActions": [{"actionType": "give_object", "targetId": "apple"}, '
-        '{"actionType": "cast_spell", "targetId": "fireball"}]}'
+        '{"actionType": "cast_spell", "targetId": "fireball"}], '
+        '"socialOutcomes": ['
+        '{"outcomeType":"offer_task","taskId":"fetch_apple"},'
+        '{"outcomeType":"payment","amount":3,"currency":"gold"}]}'
     )
     body = {
         "model": "llama3.2",
@@ -60,10 +63,16 @@ def test_dialogue_turn_success_and_policy_filtering() -> None:
     # cast_spell is not in the normal allow-list and must be filtered out.
     action_types = [a["actionType"] for a in data["dialogue"]["proposedActions"]]
     assert action_types == ["give_object"]
+    social_types = [s["outcomeType"] for s in data["dialogue"]["socialOutcomes"]]
+    assert social_types == ["offer_task", "payment"]
 
 
 def test_ghoul_policy_forces_caps_and_strips_actions() -> None:
-    reply = '{"say": "i see you", "interactionOutcome": "cooperate", "proposedNpcActions": [{"actionType": "trade"}]}'
+    reply = (
+        '{"say": "i see you", "interactionOutcome": "cooperate", '
+        '"proposedNpcActions": [{"actionType": "trade"}], '
+        '"socialOutcomes": [{"outcomeType":"advice_given","adviceTopic":"graveyard"}]}'
+    )
     body = {
         "model": "llama3.2",
         "npc": {"npcId": "ghoul_1", "npcType": "ghoul"},
@@ -74,6 +83,19 @@ def test_ghoul_policy_forces_caps_and_strips_actions() -> None:
     assert dialogue["say"] == "I SEE YOU"
     assert dialogue["interactionOutcome"] == "menace_flavor"
     assert dialogue["proposedActions"] == []
+    assert dialogue["socialOutcomes"] == []
+
+
+def test_dialogue_turn_missing_social_outcomes_defaults_empty_for_backward_compat() -> None:
+    body = {
+        "model": "llama3.2",
+        "npc": {"npcId": "merchant", "npcType": "normal"},
+        "turn": {"latestPlayerLine": "hello"},
+    }
+    with _client('{"say":"Hello traveler"}') as client:
+        data = client.post("/v1/dialogue/turn", json=body).json()
+    assert data["ok"] is True
+    assert data["dialogue"]["socialOutcomes"] == []
 
 
 def test_dialogue_turn_unparseable_returns_error_envelope() -> None:

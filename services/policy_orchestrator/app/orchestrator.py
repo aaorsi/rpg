@@ -239,6 +239,7 @@ class PolicyOrchestrator:
             ack_year=llm.ack_year,
             interaction_outcome=llm.interaction_outcome,
             proposed_actions=llm.proposed_npc_actions,
+            social_outcomes=llm.social_outcomes,
             milestone_signals=llm.milestone_signals,
             state_deltas=dict(llm.state_deltas),
             memories_to_add=llm.memories_to_add,
@@ -279,6 +280,7 @@ class PolicyOrchestrator:
         runtime_rules = [
             f"NPC_TYPE: {npc.npc_type.value}",
             f"ALLOWED_ACTIONS: {sorted(list(policy.allowed_actions))}",
+            f"ALLOWED_SOCIAL_OUTCOMES: {sorted(list(policy.allowed_social_outcome_types))}",
         ]
         if policy.forbid_state_deltas:
             runtime_rules.append("STATE_DELTAS_DISABLED: true")
@@ -289,7 +291,7 @@ class PolicyOrchestrator:
 
         system = (
             "You are an in-world character. Return ONLY JSON with keys: "
-            'say, ackYear, interactionOutcome, proposedNpcActions, milestoneSignals, stateDeltas, memoriesToAdd.\n\n'
+            'say, ackYear, interactionOutcome, proposedNpcActions, socialOutcomes, milestoneSignals, stateDeltas, memoriesToAdd.\n\n'
             f"NPC_ID: {npc.npc_id}\n"
             f"NPC_NAME: {npc.display_name}\n"
             f"ROLE:\n{npc.role_summary}\n\n"

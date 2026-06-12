@@ -15,6 +15,7 @@ namespace Rpg.Dialogue.Tests.EditMode
             Assert.AreEqual(string.Empty, payload.Say);
             Assert.IsFalse(payload.AckYear);
             Assert.IsEmpty(payload.ProposedActions);
+            Assert.IsEmpty(payload.SocialOutcomes);
             Assert.IsEmpty(payload.MemoryAdds);
         }
 
@@ -29,6 +30,11 @@ namespace Rpg.Dialogue.Tests.EditMode
                 proposedActions = new List<NpcProposedAction>
                 {
                     new NpcProposedAction { ActionType = "guide_to_location", TargetId = "warehouse", Quantity = 1f }
+                },
+                socialOutcomes = new List<PythonSocialOutcomeDto>
+                {
+                    new PythonSocialOutcomeDto { outcomeType = "payment", amount = 4f, currency = "gold" },
+                    new PythonSocialOutcomeDto { outcomeType = "unknown_type", notes = "should be ignored" }
                 },
                 milestoneSignals = new List<string> { "hint:find_key" },
                 stateDeltas = new Dictionary<string, string> { { "trust", "high" } },
@@ -51,6 +57,10 @@ namespace Rpg.Dialogue.Tests.EditMode
             Assert.AreEqual(1, payload.ProposedActions.Count);
             Assert.AreEqual("move_to_location", payload.ProposedActions[0].ActionType);
             Assert.AreEqual("warehouse", payload.ProposedActions[0].TargetId);
+            Assert.AreEqual(1, payload.SocialOutcomes.Count);
+            Assert.AreEqual("payment", payload.SocialOutcomes[0].OutcomeType);
+            Assert.AreEqual(4f, payload.SocialOutcomes[0].Amount);
+            Assert.AreEqual("gold", payload.SocialOutcomes[0].Currency);
             Assert.Contains("hint:find_key", payload.MilestoneSignals);
             Assert.AreEqual("high", payload.StateDeltas["trust"]);
             Assert.AreEqual(1, payload.MemoryAdds.Count);

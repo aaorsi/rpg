@@ -44,6 +44,13 @@ InteractionOutcome = Literal[
     "menace_flavor",
     "unspecified",
 ]
+SocialOutcomeType = Literal[
+    "offer_task",
+    "accept_task",
+    "advice_given",
+    "persuasion",
+    "payment",
+]
 StateDeltaValue = Literal["down", "steady", "up"]
 RelationshipShift = Literal["negative", "neutral", "positive"]
 
@@ -171,6 +178,17 @@ class ProposedAction(CamelModel):
     notes: str = ""
 
 
+class SocialOutcome(CamelModel):
+    outcome_type: SocialOutcomeType
+    task_id: str = ""
+    target_npc_id: str = ""
+    amount: float = 0.0
+    currency: str = ""
+    persuasion: str = ""
+    advice_topic: str = ""
+    notes: str = ""
+
+
 class LlmDialogueOutput(CamelModel):
     """Canonical shape the dialogue model must emit (dialogue_turn_result.schema.json)."""
 
@@ -178,6 +196,7 @@ class LlmDialogueOutput(CamelModel):
     ack_year: bool = False
     interaction_outcome: InteractionOutcome = "unspecified"
     proposed_npc_actions: List[ProposedAction] = Field(default_factory=list)
+    social_outcomes: List[SocialOutcome] = Field(default_factory=list)
     state_deltas: Dict[str, StateDeltaValue] = Field(default_factory=dict)
     milestone_signals: List[str] = Field(default_factory=list)
     memories_to_add: List[Dict[str, str]] = Field(default_factory=list)
@@ -238,6 +257,7 @@ class DialogueTurnResponse(CamelModel):
     ack_year: bool = False
     interaction_outcome: InteractionOutcome = "unspecified"
     proposed_actions: List[ProposedAction] = Field(default_factory=list)
+    social_outcomes: List[SocialOutcome] = Field(default_factory=list)
     milestone_signals: List[str] = Field(default_factory=list)
     state_deltas: Dict[str, str] = Field(default_factory=dict)
     memories_to_add: List[Dict[str, str]] = Field(default_factory=list)

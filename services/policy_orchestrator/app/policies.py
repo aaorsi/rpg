@@ -3,13 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, List, Set
 
-from .models import DialogueTurnResponse, NpcPlanStep, NpcType, ProposedAction
+from .models import DialogueTurnResponse, NpcPlanStep, NpcType, ProposedAction, SocialOutcome
 
 
 @dataclass(frozen=True)
 class NpcPolicy:
     npc_type: NpcType
     allowed_actions: Set[str]
+    allowed_social_outcome_types: Set[str]
     forbid_state_deltas: bool = False
     force_all_caps: bool = False
     forced_interaction_outcome: str = ""
@@ -17,6 +18,7 @@ class NpcPolicy:
     def normalize(self, response: DialogueTurnResponse) -> DialogueTurnResponse:
         normalized = response.model_copy(deep=True)
         normalized.proposed_actions = self._filter_actions(normalized.proposed_actions)
+        normalized.social_outcomes = self._filter_social_outcomes(normalized.social_outcomes)
         if self.forbid_state_deltas:
             normalized.state_deltas = {}
             normalized.milestone_signals = []
@@ -32,6 +34,14 @@ class NpcPolicy:
             key = (action.action_type or "").strip().lower()
             if key in self.allowed_actions:
                 out.append(action)
+        return out
+
+    def _filter_social_outcomes(self, outcomes: List[SocialOutcome]) -> List[SocialOutcome]:
+        out: List[SocialOutcome] = []
+        for outcome in outcomes:
+            key = (outcome.outcome_type or "").strip().lower()
+            if key in self.allowed_social_outcome_types:
+                out.append(outcome)
         return out
 
 
@@ -54,6 +64,13 @@ class PolicyRegistry:
                     "inspect_location",
                     "refer_to_npc",
                 },
+                allowed_social_outcome_types={
+                    "offer_task",
+                    "accept_task",
+                    "advice_given",
+                    "persuasion",
+                    "payment",
+                },
             ),
             NpcType.SIDEKICK: NpcPolicy(
                 npc_type=NpcType.SIDEKICK,
@@ -65,10 +82,17 @@ class PolicyRegistry:
                     "find_object",
                     "activate_object",
                 },
+                allowed_social_outcome_types={
+                    "offer_task",
+                    "accept_task",
+                    "advice_given",
+                    "persuasion",
+                },
             ),
             NpcType.GHOUL: NpcPolicy(
                 npc_type=NpcType.GHOUL,
                 allowed_actions=set(),
+                allowed_social_outcome_types=set(),
                 forbid_state_deltas=True,
                 force_all_caps=True,
                 forced_interaction_outcome="menace_flavor",

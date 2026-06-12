@@ -21,6 +21,13 @@ _VALID_OUTCOMES = {
     "defer",
     "menace_flavor",
 }
+_VALID_SOCIAL_OUTCOME_TYPES = {
+    "offer_task",
+    "accept_task",
+    "advice_given",
+    "persuasion",
+    "payment",
+}
 _VALID_STATE_DELTAS = {"down", "steady", "up"}
 
 _GUIDE_ACTION_SYNONYMS = {
@@ -75,6 +82,7 @@ def parse_dialogue_output(raw: str) -> Dict[str, Any]:
     actions = _parse_proposed_actions(obj)
     _normalize_guide_action_types(actions)
     result["proposedNpcActions"] = actions
+    result["socialOutcomes"] = _parse_social_outcomes(obj)
     result["stateDeltas"] = _parse_state_deltas(obj)
     result["milestoneSignals"] = _parse_milestones(obj)
     result["memoriesToAdd"] = _parse_memories_to_add(obj)
@@ -286,6 +294,38 @@ def _parse_state_deltas(obj: Dict[str, Any]) -> Dict[str, str]:
     return out
 
 
+def _parse_social_outcomes(obj: Dict[str, Any]) -> List[Dict[str, Any]]:
+    arr = _first_list(obj, "socialOutcomes", "social_outcomes", "socialSignals")
+    if arr is None:
+        single = obj.get("socialOutcome")
+        arr = [single] if isinstance(single, dict) else []
+    out: List[Dict[str, Any]] = []
+    for el in arr:
+        if not isinstance(el, dict):
+            continue
+        outcome_type_raw = _first_str(el, "outcomeType", "outcome_type", "type", "outcome", "event")
+        if not outcome_type_raw:
+            continue
+        outcome_type = outcome_type_raw.strip().lower()
+        if outcome_type not in _VALID_SOCIAL_OUTCOME_TYPES:
+            continue
+        out.append(
+            {
+                "outcomeType": outcome_type,
+                "taskId": _first_str(el, "taskId", "task_id", "task", "questId", "quest_id") or "",
+                "targetNpcId": _first_str(el, "targetNpcId", "target_npc_id", "targetId", "target", "npcId") or "",
+                "amount": _try_parse_amount(
+                    el.get("amount") or el.get("paymentAmount") or el.get("value") or el.get("price")
+                ),
+                "currency": _first_str(el, "currency", "currencyCode", "paymentCurrency") or "",
+                "persuasion": _first_str(el, "persuasion", "persuasionMode", "method", "approach") or "",
+                "adviceTopic": _first_str(el, "adviceTopic", "advice_topic", "topic", "subject") or "",
+                "notes": _first_str(el, "notes", "reason", "detail", "description") or "",
+            }
+        )
+    return out
+
+
 def _parse_milestones(obj: Dict[str, Any]) -> List[str]:
     arr = _first_list(obj, "milestoneSignals", "milestones")
     if arr is None:
@@ -344,3 +384,12 @@ def _first_list(obj: Dict[str, Any], *names: str) -> Optional[List[Any]]:
         if isinstance(value, list):
             return value
     return None
+
+
+def _try_parse_amount(value: Any) -> float:
+    if value is None:
+        return 0.0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0

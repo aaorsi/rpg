@@ -10,6 +10,15 @@ namespace Rpg.Dialogue
 {
     public static class ResponseValidator
     {
+        static readonly HashSet<string> ValidSocialOutcomeTypes = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "offer_task",
+            "accept_task",
+            "advice_given",
+            "persuasion",
+            "payment"
+        };
+
         static readonly Regex SayStringRegex = new Regex(
             @"""say""\s*:\s*""((?:\\.|[^""\\])*)""",
             RegexOptions.CultureInvariant | RegexOptions.Singleline);
@@ -166,6 +175,7 @@ namespace Rpg.Dialogue
             ParseInteractionOutcome(obj, payload);
             ParseStateDeltas(obj, payload.StateDeltas);
             ParseMilestones(obj, payload.MilestoneSignals);
+            ParseSocialOutcomes(obj, payload.SocialOutcomes);
             return payload;
         }
 
@@ -236,6 +246,7 @@ namespace Rpg.Dialogue
             ParseInteractionOutcome(obj, payload);
             ParseProposedActions(obj, payload.ProposedActions);
             NormalizeGuideActionTypes(payload.ProposedActions);
+            ParseSocialOutcomes(obj, payload.SocialOutcomes);
             ParseStateDeltas(obj, payload.StateDeltas);
             ParseMilestones(obj, payload.MilestoneSignals);
         }
@@ -471,6 +482,43 @@ namespace Rpg.Dialogue
             }
         }
 
+        static void ParseSocialOutcomes(JObject obj, List<NpcSocialOutcome> target)
+        {
+            var arr = obj["socialOutcomes"] as JArray ?? obj["social_outcomes"] as JArray;
+            if (arr == null)
+            {
+                if (obj["socialOutcome"] is JObject single)
+                    TryAppendSocialOutcome(single, target);
+                return;
+            }
+
+            foreach (var el in arr)
+            {
+                if (el is JObject so)
+                    TryAppendSocialOutcome(so, target);
+            }
+        }
+
+        static void TryAppendSocialOutcome(JObject so, List<NpcSocialOutcome> target)
+        {
+            var type = NormalizeSocialOutcomeType(
+                FirstNonEmptyString(so, "outcomeType", "outcome_type", "type", "outcome", "event"));
+            if (string.IsNullOrWhiteSpace(type))
+                return;
+
+            target.Add(new NpcSocialOutcome
+            {
+                OutcomeType = type,
+                TaskId = FirstNonEmptyString(so, "taskId", "task_id", "task", "questId", "quest_id"),
+                TargetNpcId = FirstNonEmptyString(so, "targetNpcId", "target_npc_id", "targetId", "target", "npcId"),
+                Amount = ParseAmount(so["amount"] ?? so["paymentAmount"] ?? so["value"] ?? so["price"]),
+                Currency = FirstNonEmptyString(so, "currency", "currencyCode", "paymentCurrency"),
+                Persuasion = FirstNonEmptyString(so, "persuasion", "persuasionMode", "method", "approach"),
+                AdviceTopic = FirstNonEmptyString(so, "adviceTopic", "advice_topic", "topic", "subject"),
+                Notes = FirstNonEmptyString(so, "notes", "reason", "detail", "description")
+            });
+        }
+
         static void ParseMilestones(JObject obj, List<string> target)
         {
             var arr = obj["milestoneSignals"] as JArray ?? obj["milestones"] as JArray;
@@ -482,6 +530,23 @@ namespace Rpg.Dialogue
                 if (!string.IsNullOrWhiteSpace(s))
                     target.Add(s.Trim());
             }
+        }
+
+        static string NormalizeSocialOutcomeType(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                return null;
+            var normalized = raw.Trim().ToLowerInvariant();
+            return ValidSocialOutcomeTypes.Contains(normalized) ? normalized : null;
+        }
+
+        static float ParseAmount(JToken token)
+        {
+            if (token == null || token.Type == JTokenType.Null)
+                return 0f;
+            if (float.TryParse(token.ToString(), out var parsed))
+                return parsed;
+            return 0f;
         }
 
         static string FirstNonEmptyString(JObject obj, params string[] propertyNames)

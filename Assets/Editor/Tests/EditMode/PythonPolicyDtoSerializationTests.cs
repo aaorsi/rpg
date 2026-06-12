@@ -60,5 +60,43 @@ namespace Rpg.Dialogue.Tests.EditMode
             Assert.IsTrue(string.IsNullOrEmpty(parsed.npc.activePlanContext));
             Assert.IsTrue(string.IsNullOrEmpty(parsed.npc.activeGoalsContext));
         }
+
+        [Test]
+        public void DialogueTurnResponseDto_SerializesSocialOutcomes()
+        {
+            var dto = new PythonDialogueTurnResponseDto
+            {
+                say = "Done.",
+                socialOutcomes = new List<PythonSocialOutcomeDto>
+                {
+                    new PythonSocialOutcomeDto
+                    {
+                        outcomeType = "offer_task",
+                        taskId = "fix_wagon",
+                        notes = "Repair before dusk"
+                    }
+                }
+            };
+
+            var json = JsonConvert.SerializeObject(dto);
+            var parsed = JsonConvert.DeserializeObject<PythonDialogueTurnResponseDto>(json);
+
+            Assert.NotNull(parsed);
+            Assert.NotNull(parsed.socialOutcomes);
+            Assert.AreEqual(1, parsed.socialOutcomes.Count);
+            Assert.AreEqual("offer_task", parsed.socialOutcomes[0].outcomeType);
+            Assert.AreEqual("fix_wagon", parsed.socialOutcomes[0].taskId);
+        }
+
+        [Test]
+        public void DialogueTurnResponseDto_MissingSocialOutcomes_StaysBackwardCompatible()
+        {
+            const string json = "{\"say\":\"hello\"}";
+            var parsed = JsonConvert.DeserializeObject<PythonDialogueTurnResponseDto>(json);
+
+            Assert.NotNull(parsed);
+            Assert.NotNull(parsed.socialOutcomes);
+            Assert.AreEqual(0, parsed.socialOutcomes.Count);
+        }
     }
 }
