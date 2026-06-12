@@ -58,10 +58,7 @@ namespace Rpg.Dialogue
         PendingTransferDecision _pendingTransfer;
         readonly Dictionary<string, int> _consecutiveRejectByNpc = new Dictionary<string, int>();
         int _runtimeGenerationSeed;
-        string _chickenTheftActiveNpcId;
-        bool _chickenTheftExchangeCompleted;
-        /// <summary>Only this NPC may treat the hero's live chicken as a theft against them in dialogue prompts.</summary>
-        string _chickenTheftIncidentVictimNpcId;
+        readonly ChickenTheftDialogueScenario _chickenTheftScenario = new ChickenTheftDialogueScenario();
         string _pendingSkipNpcGuideReturnForNpcId;
 
         sealed class PendingTransferDecision
@@ -312,7 +309,7 @@ namespace Rpg.Dialogue
 
         public bool TryStartChickenTheftConfrontationDialogue(NpcDefinition npc, string forcedNpcOpening)
         {
-            if (npc == null || string.IsNullOrWhiteSpace(forcedNpcOpening))
+            if (!_chickenTheftScenario.CanStartConfrontationDialogue(npc, forcedNpcOpening))
                 return false;
             return TryStartDialogue(npc, forcedNpcOpening, true);
         }
@@ -346,16 +343,7 @@ namespace Rpg.Dialogue
             ui.Open(npc.displayName);
             _inventory?.EnsureSeededNpc(npc.npcId);
             UpdateInventoryDebugUi(npc.npcId);
-            if (chickenTheftSession)
-            {
-                _chickenTheftActiveNpcId = npc.npcId;
-                _chickenTheftExchangeCompleted = false;
-            }
-            else
-            {
-                _chickenTheftActiveNpcId = null;
-                _chickenTheftExchangeCompleted = false;
-            }
+            _chickenTheftScenario.OnDialogueStart(npc.npcId, chickenTheftSession);
 
             if (resume && !string.IsNullOrWhiteSpace(resumeUiLine))
                 ui.AppendSystemLine(resumeUiLine);
@@ -431,16 +419,9 @@ namespace Rpg.Dialogue
                 return;
 
             var closingNpcId = _activeNpc != null ? _activeNpc.npcId : null;
-            var theftSession = !string.IsNullOrWhiteSpace(_chickenTheftActiveNpcId)
-                && !string.IsNullOrWhiteSpace(closingNpcId)
-                && string.Equals(_chickenTheftActiveNpcId, closingNpcId, StringComparison.OrdinalIgnoreCase);
-            var theftResolved = _chickenTheftExchangeCompleted;
-            if (theftSession && !theftResolved)
-                NpcChickenTheftConfrontation.NotifyDialogueClosedWithoutTrade(closingNpcId);
-            if (theftSession)
-                _pendingSkipNpcGuideReturnForNpcId = closingNpcId;
-            _chickenTheftActiveNpcId = null;
-            _chickenTheftExchangeCompleted = false;
+            var skipNpcGuideReturnForNpcId = _chickenTheftScenario.OnDialogueEnd(closingNpcId);
+            if (!string.IsNullOrWhiteSpace(skipNpcGuideReturnForNpcId))
+                _pendingSkipNpcGuideReturnForNpcId = skipNpcGuideReturnForNpcId;
 
             RequestNpcReturnToOrigin(closingNpcId);
             var closingTurns = _session != null ? new List<OllamaMessageDto>(_session.GetRecentTurnMessages()) : null;
@@ -1627,7 +1608,7 @@ namespace Rpg.Dialogue
                 ? (ok ? $"Here you go: {display} x{p.qty}." : "I cannot hand that over right now.")
                 : (ok ? $"Thank you for the {display}." : $"You do not have enough {display}."));
             if (ok && !p.npcToHero)
-                NotifyChickenTheftReparationIfNeeded(p.npcId);
+                _chickenTheftScenario.NotifyReparationIfNeeded(p.npcId);
             if (_activeNpc != null)
                 UpdateInventoryDebugUi(_activeNpc.npcId);
             RefreshWorldInventoryVisuals();
@@ -1639,14 +1620,8 @@ namespace Rpg.Dialogue
             if (_inventory == null || string.IsNullOrWhiteSpace(npcId) || string.IsNullOrWhiteSpace(itemId))
                 return false;
 
-            var intentKeyEarly = (intent ?? string.Empty).Trim().ToLowerInvariant();
-            if (!string.IsNullOrWhiteSpace(_chickenTheftActiveNpcId)
-                && string.Equals(npcId, _chickenTheftActiveNpcId, StringComparison.OrdinalIgnoreCase)
-                && (intentKeyEarly == "receive" || intentKeyEarly == "trade"))
-            {
-                reason = "this settles the matter of my chicken.";
+            if (_chickenTheftScenario.TryGetWillingnessForTransfer(npcId, intent, out reason))
                 return true;
-            }
 
             var profile = _narrativeCanon?.npcProfiles?.Find(x =>
                 x != null && !string.IsNullOrWhiteSpace(x.npcId) && string.Equals(x.npcId, npcId, StringComparison.OrdinalIgnoreCase));
@@ -1720,35 +1695,18 @@ namespace Rpg.Dialogue
         /// <summary>Hero/NPC item store; null until <see cref="ConfigureRuntime"/>.</summary>
         public InventoryService Inventory => _inventory;
 
-        public string ChickenTheftIncidentVictimNpcId => _chickenTheftIncidentVictimNpcId;
+        public string ChickenTheftIncidentVictimNpcId => _chickenTheftScenario.IncidentVictimNpcId;
 
-        public void RegisterChickenTheftIncidentVictim(string npcId)
-        {
-            _chickenTheftIncidentVictimNpcId = string.IsNullOrWhiteSpace(npcId) ? null : npcId.Trim();
-        }
+        public void RegisterChickenTheftIncidentVictim(string npcId) => _chickenTheftScenario.RegisterIncidentVictim(npcId);
 
-        public void ClearChickenTheftIncidentVictim()
-        {
-            _chickenTheftIncidentVictimNpcId = null;
-        }
+        public void ClearChickenTheftIncidentVictim() => _chickenTheftScenario.ClearIncidentVictim();
 
         /// <summary>
         /// While the hero carries a live chicken, hide it from LLM inventory text unless the speaking NPC is the
         /// registered theft victim (or no victim yet — then hide from everyone until a confrontation assigns one).
         /// </summary>
-        public bool ShouldRedactLiveChickenInPromptForNpc(string speakingNpcId)
-        {
-            if (_inventory == null || string.IsNullOrWhiteSpace(speakingNpcId))
-                return false;
-            if (!_inventory.HasAtLeast(InventoryService.HeroActorId, GameConstants.LiveChickenItemId, 1))
-                return false;
-            if (string.IsNullOrWhiteSpace(_chickenTheftIncidentVictimNpcId))
-                return true;
-            return !string.Equals(
-                speakingNpcId.Trim(),
-                _chickenTheftIncidentVictimNpcId,
-                StringComparison.OrdinalIgnoreCase);
-        }
+        public bool ShouldRedactLiveChickenInPromptForNpc(string speakingNpcId) =>
+            _chickenTheftScenario.ShouldRedactLiveChickenInPromptForNpc(_inventory, speakingNpcId);
 
         public void NotifyHeroWorldInventoryChanged()
         {
@@ -1763,7 +1721,7 @@ namespace Rpg.Dialogue
                 return false;
             if (!_inventory.RemoveItem(InventoryService.HeroActorId, GameConstants.LiveChickenItemId, 1))
                 return false;
-            ClearChickenTheftIncidentVictim();
+            _chickenTheftScenario.ClearIncidentVictim();
             var go = GameObject.FindGameObjectWithTag(GameConstants.PlayerTag);
             if (go != null && go.TryGetComponent<HeroHunger>(out var hung))
                 hung.AddFoodFractionOfMax(0.5f);
@@ -1789,7 +1747,7 @@ namespace Rpg.Dialogue
             if (!_inventory.RemoveItem(InventoryService.HeroActorId, itemId, 1))
                 return false;
             if (string.Equals(itemId.Trim(), GameConstants.LiveChickenItemId, StringComparison.OrdinalIgnoreCase))
-                ClearChickenTheftIncidentVictim();
+                _chickenTheftScenario.ClearIncidentVictim();
             var dropPos = hero.transform.position + hero.transform.forward * 0.65f + Vector3.up * 0.2f;
             WorldItemDropSpawner.SpawnDroppedItem(itemId.Trim(), dropPos, _contentLibrary);
             NotifyHeroWorldInventoryChanged();
@@ -1864,7 +1822,7 @@ namespace Rpg.Dialogue
             ui?.AppendSystemLine(ok ? $"Given to NPC: {display} x1. {reason}" : $"Give failed for {display}.");
             ui?.AppendNpcLine(ok ? $"I accept {display}. {reason}" : $"I cannot accept {display} right now.");
             if (ok)
-                NotifyChickenTheftReparationIfNeeded(npcId);
+                _chickenTheftScenario.NotifyReparationIfNeeded(npcId);
             UpdateInventoryDebugUi(npcId);
             RefreshWorldInventoryVisuals();
             return ok;
@@ -1898,58 +1856,17 @@ namespace Rpg.Dialogue
                 ? $"Trade accepted. I take {heroDisplay} and give you {npcDisplay}."
                 : "Trade cannot proceed right now.");
             if (ok)
-                NotifyChickenTheftReparationIfNeeded(npcId);
+                _chickenTheftScenario.NotifyReparationIfNeeded(npcId);
             UpdateInventoryDebugUi(npcId);
             RefreshWorldInventoryVisuals();
             return ok;
         }
 
-        void NotifyChickenTheftReparationIfNeeded(string npcId)
-        {
-            if (string.IsNullOrWhiteSpace(npcId) || string.IsNullOrWhiteSpace(_chickenTheftActiveNpcId))
-                return;
-            if (!string.Equals(npcId, _chickenTheftActiveNpcId, StringComparison.OrdinalIgnoreCase))
-                return;
-            _chickenTheftExchangeCompleted = true;
-            NpcChickenTheftConfrontation.NotifyReparationComplete(npcId);
-        }
-
         /// <summary>Called when narrative <see cref="NpcActionTypes.ReceiveObject"/> moves inventory from hero to NPC during dialogue.</summary>
-        public void NotifyChickenTheftReparationFromNpcAction(string npcId) => NotifyChickenTheftReparationIfNeeded(npcId);
+        public void NotifyChickenTheftReparationFromNpcAction(string npcId) => _chickenTheftScenario.NotifyReparationIfNeeded(npcId);
 
-        public async Task<string> RequestChickenTheftShoutLineAsync(CancellationToken cancellationToken)
-        {
-            const string fallback = "Hey—stop there! You're stealing my chicken!";
-            if (_ollamaClient == null || _ollamaSettings == null)
-                return fallback;
-            var system =
-                "You write one short line of shouted dialogue for a fantasy villager whose chicken was stolen. "
-                + "No quotes, no stage directions, no JSON, one sentence only, under 140 characters.";
-            var user =
-                "Write one line the villager yells at the thief, like: Hey, stop — you're stealing my chickens! "
-                + "Vary the wording but keep the same meaning.";
-            try
-            {
-                var messages = new List<OllamaMessageDto>
-                {
-                    new OllamaMessageDto("system", system),
-                    new OllamaMessageDto("user", user)
-                };
-                var result = await _ollamaClient.ChatAsync(
-                    messages,
-                    _ollamaSettings.model,
-                    cancellationToken);
-                if (result.IsSuccess && !string.IsNullOrWhiteSpace(result.AssistantContent))
-                    return result.AssistantContent.Trim();
-                DialogueTelemetry.Log("ChickenTheftShoutFail", result.Error ?? "empty assistant content");
-            }
-            catch (Exception ex)
-            {
-                DialogueTelemetry.Log("ChickenTheftShoutFail", ex.Message);
-            }
-
-            return fallback;
-        }
+        public Task<string> RequestChickenTheftShoutLineAsync(CancellationToken cancellationToken) =>
+            _chickenTheftScenario.RequestShoutLineAsync(_ollamaClient, _ollamaSettings, cancellationToken);
 
         public async void GenerateHeroBookDiscoveryNarration(int bookCount, string itemId)
         {
