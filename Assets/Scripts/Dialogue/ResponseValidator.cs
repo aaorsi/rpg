@@ -169,6 +169,58 @@ namespace Rpg.Dialogue
             return payload;
         }
 
+        /// <summary>
+        /// Maps a Python sidecar summary DTO into <see cref="NpcConversationSummary"/>.
+        /// </summary>
+        public static bool TryBuildSummaryFromSidecarDto(PythonSummaryResponseDto dto, out NpcConversationSummary summary)
+        {
+            summary = null;
+            if (dto == null || string.IsNullOrWhiteSpace(dto.summary))
+                return false;
+
+            summary = new NpcConversationSummary
+            {
+                summary = dto.summary,
+                learnedFacts = dto.learnedFacts ?? new List<string>(),
+                openThreads = dto.openThreads ?? new List<string>(),
+                relationshipShift = string.IsNullOrWhiteSpace(dto.relationshipShift)
+                    ? "neutral"
+                    : dto.relationshipShift,
+                createdUtc = DateTime.UtcNow.ToString("o")
+            };
+            return true;
+        }
+
+        /// <summary>
+        /// Parses and validates narrative canon JSON from a Python sidecar DTO.
+        /// </summary>
+        public static bool TryBuildNarrativeCanonFromSidecarDto(
+            PythonNarrativeResponseDto dto,
+            out NarrativeSessionCanon canon,
+            out string parseError)
+        {
+            canon = null;
+            parseError = null;
+            if (dto == null || string.IsNullOrWhiteSpace(dto.canonJson))
+                return false;
+
+            try
+            {
+                var parsed = JsonConvert.DeserializeObject<NarrativeSessionCanon>(dto.canonJson);
+                if (parsed != null && NarrativeGenerationService.ValidateAndRepair(parsed))
+                {
+                    canon = parsed;
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                parseError = ex.Message;
+            }
+
+            return false;
+        }
+
         static void PopulatePayloadFromJsonObject(JObject obj, AssistantModelPayload payload)
         {
             var ack = obj["ackYear"] ?? obj["ack_year"];

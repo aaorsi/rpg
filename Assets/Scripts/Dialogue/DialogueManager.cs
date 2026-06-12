@@ -216,43 +216,15 @@ namespace Rpg.Dialogue
                 return;
             var seed = seedOverride ?? _runtimeGenerationSeed;
             var cts = _cts != null ? _cts.Token : CancellationToken.None;
-            if (_ollamaSettings != null && _ollamaSettings.usePythonNarrativeGeneration && _pythonClient != null)
+            var sidecarCanon = await TryAcquireNarrativeCanonFromSidecarAsync(seed, npcIds, cts);
+            if (sidecarCanon != null)
             {
-                var fallback = _generationService.BuildFallback(seed, npcIds);
-                var req = new PythonNarrativeRequestDto
-                {
-                    requestId = Guid.NewGuid().ToString("N"),
-                    model = _ollamaSettings.model,
-                    seed = seed,
-                    fallbackCanonJson = Newtonsoft.Json.JsonConvert.SerializeObject(fallback),
-                    apiToken = _ollamaSettings.providerApiToken,
-                    providerBaseUrl = _ollamaSettings.providerBaseUrl
-                };
-                var envelope = await _pythonClient.NarrativeAsync(req, cts);
-                if (envelope != null && envelope.ok && envelope.narrative != null && !string.IsNullOrWhiteSpace(envelope.narrative.canonJson))
-                {
-                    try
-                    {
-                        var parsed = Newtonsoft.Json.JsonConvert.DeserializeObject<NarrativeSessionCanon>(envelope.narrative.canonJson);
-                        if (parsed != null && NarrativeGenerationService.ValidateAndRepair(parsed))
-                        {
-                            _narrativeCanon = parsed;
-                            RefreshNarrativeWiring();
-                            return;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        DialogueTelemetry.Log("PythonNarrativeParseFail", ex.Message);
-                    }
-                }
-                else
-                {
-                    DialogueTelemetry.Log("PythonNarrativeFail", envelope?.error?.message ?? "unknown sidecar error");
-                }
+                CommitNarrativeCanon(sidecarCanon);
+                return;
             }
-            _narrativeCanon = await _generationService.GenerateOrFallbackAsync(seed, npcIds, cts);
-            RefreshNarrativeWiring();
+
+            var canon = await _generationService.GenerateOrFallbackAsync(seed, npcIds, cts);
+            CommitNarrativeCanon(canon);
         }
 
         public bool IsDialogueOpen => _dialogueOpen;
@@ -590,44 +562,10 @@ namespace Rpg.Dialogue
             try
             {
                 var token = _summaryCts != null ? _summaryCts.Token : CancellationToken.None;
-                NpcConversationSummary summary = null;
-                if (_ollamaSettings != null && _ollamaSettings.usePythonSummaryService && _pythonClient != null)
-                {
-                    var req = new PythonSummaryRequestDto
-                    {
-                        requestId = Guid.NewGuid().ToString("N"),
-                        model = _ollamaSettings.model,
-                        npcId = npcId,
-                        turns = turns != null ? new List<OllamaMessageDto>(turns) : new List<OllamaMessageDto>(),
-                        apiToken = _ollamaSettings.providerApiToken,
-                        providerBaseUrl = _ollamaSettings.providerBaseUrl
-                    };
-                    var envelope = await _pythonClient.SummaryAsync(req, token);
-                    if (envelope != null && envelope.ok && envelope.summary != null && !string.IsNullOrWhiteSpace(envelope.summary.summary))
-                    {
-                        summary = new NpcConversationSummary
-                        {
-                            summary = envelope.summary.summary,
-                            learnedFacts = envelope.summary.learnedFacts ?? new List<string>(),
-                            openThreads = envelope.summary.openThreads ?? new List<string>(),
-                            relationshipShift = string.IsNullOrWhiteSpace(envelope.summary.relationshipShift)
-                                ? "neutral"
-                                : envelope.summary.relationshipShift,
-                            createdUtc = DateTime.UtcNow.ToString("o")
-                        };
-                    }
-                    else
-                    {
-                        DialogueTelemetry.Log("PythonSummaryFail", envelope?.error?.message ?? "unknown sidecar error");
-                    }
-                }
+                var summary = await TryAcquireSummaryFromSidecarAsync(npcId, turns, token);
                 if (summary == null)
                     summary = await _summaryService.SummarizeAsync(npcId, turns, token);
-                if (summary != null)
-                {
-                    _summaryRepo.Save(npcId, summary);
-                    DialogueTelemetry.Log("ConversationSummarySaved", $"npc={npcId}");
-                }
+                PersistConversationSummary(npcId, summary);
             }
             catch (Exception ex)
             {
@@ -1132,6 +1070,83 @@ namespace Rpg.Dialogue
             return true;
         }
 
+        void CommitNarrativeCanon(NarrativeSessionCanon canon)
+        {
+            if (canon == null)
+                return;
+            _narrativeCanon = canon;
+            RefreshNarrativeWiring();
+        }
+
+        async Task<NarrativeSessionCanon> TryAcquireNarrativeCanonFromSidecarAsync(
+            int seed,
+            IReadOnlyList<string> npcIds,
+            CancellationToken cancellationToken)
+        {
+            if (_ollamaSettings == null || !_ollamaSettings.usePythonNarrativeGeneration || _pythonClient == null || _generationService == null)
+                return null;
+
+            var fallback = _generationService.BuildFallback(seed, npcIds);
+            var req = new PythonNarrativeRequestDto
+            {
+                requestId = Guid.NewGuid().ToString("N"),
+                model = _ollamaSettings.model,
+                seed = seed,
+                fallbackCanonJson = Newtonsoft.Json.JsonConvert.SerializeObject(fallback),
+                apiToken = _ollamaSettings.providerApiToken,
+                providerBaseUrl = _ollamaSettings.providerBaseUrl
+            };
+            var envelope = await _pythonClient.NarrativeAsync(req, cancellationToken);
+            if (envelope != null && envelope.ok && envelope.narrative != null
+                && !string.IsNullOrWhiteSpace(envelope.narrative.canonJson))
+            {
+                NarrativeSessionCanon canon = null;
+                string parseError = null;
+                if (ResponseValidator.TryBuildNarrativeCanonFromSidecarDto(envelope.narrative, out canon, out parseError))
+                    return canon;
+                if (!string.IsNullOrWhiteSpace(parseError))
+                    DialogueTelemetry.Log("PythonNarrativeParseFail", parseError);
+                return null;
+            }
+
+            DialogueTelemetry.Log("PythonNarrativeFail", envelope?.error?.message ?? "unknown sidecar error");
+            return null;
+        }
+
+        void PersistConversationSummary(string npcId, NpcConversationSummary summary)
+        {
+            if (summary == null || _summaryRepo == null || string.IsNullOrWhiteSpace(npcId))
+                return;
+            _summaryRepo.Save(npcId, summary);
+            DialogueTelemetry.Log("ConversationSummarySaved", $"npc={npcId}");
+        }
+
+        async Task<NpcConversationSummary> TryAcquireSummaryFromSidecarAsync(
+            string npcId,
+            IReadOnlyList<OllamaMessageDto> turns,
+            CancellationToken cancellationToken)
+        {
+            if (_ollamaSettings == null || !_ollamaSettings.usePythonSummaryService || _pythonClient == null)
+                return null;
+
+            var req = new PythonSummaryRequestDto
+            {
+                requestId = Guid.NewGuid().ToString("N"),
+                model = _ollamaSettings.model,
+                npcId = npcId,
+                turns = turns != null ? new List<OllamaMessageDto>(turns) : new List<OllamaMessageDto>(),
+                apiToken = _ollamaSettings.providerApiToken,
+                providerBaseUrl = _ollamaSettings.providerBaseUrl
+            };
+            var envelope = await _pythonClient.SummaryAsync(req, cancellationToken);
+            if (envelope != null && envelope.ok && envelope.summary != null
+                && ResponseValidator.TryBuildSummaryFromSidecarDto(envelope.summary, out var summary))
+                return summary;
+
+            DialogueTelemetry.Log("PythonSummaryFail", envelope?.error?.message ?? "unknown sidecar error");
+            return null;
+        }
+
         DialogueResult CommitSuccessfulTurn(string playerLine, string assistantLineForSession, string rawAssistant, AssistantModelPayload payload)
         {
             _session.AddUserLine(playerLine);
@@ -1149,31 +1164,7 @@ namespace Rpg.Dialogue
 
         void ProcessOutcomeTelemetryAndFailForward(string npcId, AssistantModelPayload payload)
         {
-            if (string.IsNullOrWhiteSpace(npcId) || payload == null)
-                return;
-            var outcome = string.IsNullOrWhiteSpace(payload.InteractionOutcome)
-                ? "unspecified"
-                : payload.InteractionOutcome.Trim().ToLowerInvariant();
-            DialogueTelemetry.Log("DialogueOutcome", $"npc={npcId}, outcome={outcome}");
-
-            if (outcome == "reject" || outcome == "defer")
-            {
-                _consecutiveRejectByNpc.TryGetValue(npcId, out var c);
-                c++;
-                _consecutiveRejectByNpc[npcId] = c;
-                if (c >= 3)
-                {
-                    // Never-impossible fail-forward: nudge toward partial cooperation after repeated hard rejections.
-                    payload.InteractionOutcome = "partial";
-                    if (string.IsNullOrWhiteSpace(payload.Say))
-                        payload.Say = "I still have doubts, but here is one useful lead you can follow.";
-                    DialogueTelemetry.Log("FailForwardEscalation", $"npc={npcId}, rejects={c}");
-                }
-            }
-            else
-            {
-                _consecutiveRejectByNpc[npcId] = 0;
-            }
+            DialogueTurnCommitLogic.ApplyOutcomeTelemetryAndFailForward(npcId, payload, _consecutiveRejectByNpc);
         }
 
         public async Task<DialogueResult> SubmitPlayerLineAsync(string playerLine, CancellationToken cancellationToken)
@@ -1584,21 +1575,10 @@ namespace Rpg.Dialogue
 
         bool TryHandlePendingTransferDecision(string line)
         {
-            if (_pendingTransfer == null || string.IsNullOrWhiteSpace(line))
-                return false;
-            var l = line.Trim().ToLowerInvariant();
-            var accepted = l == "/accept" || l == "accept" || l == "yes" || l == "y";
-            var declined = l == "/decline" || l == "decline" || l == "no" || l == "n";
-            if (!accepted && !declined)
+            if (_pendingTransfer == null || !TransferDecisionParser.TryParsePlayerLine(line, out var accepted))
                 return false;
 
-            if (declined)
-            {
-                ResolvePendingTransferFromUi(false);
-                return true;
-            }
-
-            ResolvePendingTransferFromUi(true);
+            ResolvePendingTransferFromUi(accepted);
             return true;
         }
 
@@ -1679,7 +1659,7 @@ namespace Rpg.Dialogue
                 score += SocialLevelToDelta(profile.socialTraits, "trickery", -0.08f);
             }
 
-            score += InteractionOutcomeWillingnessDelta(_lastCommittedInteractionOutcome);
+            score += DialogueTurnCommitLogic.InteractionOutcomeWillingnessDelta(_lastCommittedInteractionOutcome);
 
             var intentKey = (intent ?? string.Empty).Trim().ToLowerInvariant();
             if (intentKey == "take")
@@ -1708,19 +1688,6 @@ namespace Rpg.Dialogue
         static string NormalizeInteractionOutcome(string raw)
         {
             return string.IsNullOrWhiteSpace(raw) ? null : raw.Trim().ToLowerInvariant();
-        }
-
-        internal static float InteractionOutcomeWillingnessDelta(string normalizedOutcome)
-        {
-            if (string.IsNullOrWhiteSpace(normalizedOutcome))
-                return 0f;
-            if (normalizedOutcome == "cooperate")
-                return 0.15f;
-            if (normalizedOutcome == "reject")
-                return -0.2f;
-            if (normalizedOutcome == "counter_offer")
-                return -0.1f;
-            return 0f;
         }
 
         static float SocialLevelToDelta(Dictionary<string, string> traits, string key, float magnitude)

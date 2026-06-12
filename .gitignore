@@ -84,6 +84,9 @@ services/**/.venv/
 !/Assets.meta
 !/Assets/Scripts/
 !/Assets/Scripts/**
+!/Assets/Editor/
+!/Assets/Editor.meta
+!/Assets/Editor/**
 !/Assets/StreamingAssets/
 !/Assets/StreamingAssets/Dialogue/
 !/Assets/StreamingAssets/Dialogue/**
