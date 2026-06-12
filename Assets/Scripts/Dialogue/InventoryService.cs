@@ -47,7 +47,9 @@ namespace Rpg.Dialogue
         InventoryDocument _doc;
 
         public const string HeroActorId = "hero";
+        public const string CoinItemId = "coin";
         const int LiveChickenHeroMaxCount = 2;
+        static readonly string[] CoinAliases = { "coin", "coins", "gold_coin", "gold_coins", "gold" };
 
         public static void ClearAllForNewPlaySession(string path = null)
         {
@@ -111,17 +113,21 @@ namespace Rpg.Dialogue
             }
         }
 
-        public void EnsureSeededHero()
+        public void EnsureSeededHero(int startingPurseCoins = 0)
         {
             EnsureActor(HeroActorId);
             if (GetActor(HeroActorId).entries.Count > 0)
+            {
+                EnsureHeroStartingPurse(startingPurseCoins);
                 return;
+            }
             var ids = AllKnownItemIds().Take(3).ToArray();
             if (ids.Length == 0)
                 return;
             AddItem(HeroActorId, ids[0], 2);
             if (ids.Length > 1) AddItem(HeroActorId, ids[1], 1);
             if (ids.Length > 2) AddItem(HeroActorId, ids[2], 1);
+            EnsureHeroStartingPurse(startingPurseCoins);
         }
 
         public void EnsureSeededNpc(string npcId)
@@ -170,19 +176,21 @@ namespace Rpg.Dialogue
 
         public bool IsKnownItem(string itemId)
         {
-            if (string.IsNullOrWhiteSpace(itemId))
+            var normalized = NormalizeItemId(itemId);
+            if (string.IsNullOrWhiteSpace(normalized))
                 return false;
-            return AllKnownItemIds().Contains(itemId.Trim(), StringComparer.OrdinalIgnoreCase);
+            return AllKnownItemIds().Contains(normalized, StringComparer.OrdinalIgnoreCase);
         }
 
         public bool HasAtLeast(string actorId, string itemId, int qty)
         {
-            if (string.IsNullOrWhiteSpace(actorId) || string.IsNullOrWhiteSpace(itemId) || qty <= 0)
+            var normalizedItemId = NormalizeItemId(itemId);
+            if (string.IsNullOrWhiteSpace(actorId) || string.IsNullOrWhiteSpace(normalizedItemId) || qty <= 0)
                 return false;
             var actor = GetActorOrNull(actorId);
             if (actor == null || actor.entries == null)
                 return false;
-            var e = actor.entries.FirstOrDefault(x => string.Equals(x.itemId, itemId.Trim(), StringComparison.OrdinalIgnoreCase));
+            var e = actor.entries.FirstOrDefault(x => string.Equals(x.itemId, normalizedItemId, StringComparison.OrdinalIgnoreCase));
             return e != null && e.quantity >= qty;
         }
 
@@ -192,7 +200,7 @@ namespace Rpg.Dialogue
         {
             IEnumerable<string> obj = _catalog?.objects?.Where(x => !string.IsNullOrWhiteSpace(x.id)).Select(x => x.id.Trim()) ?? Array.Empty<string>();
             IEnumerable<string> art = _catalog?.artifacts?.Where(x => !string.IsNullOrWhiteSpace(x.id)).Select(x => x.id.Trim()) ?? Array.Empty<string>();
-            return obj.Concat(art).Distinct(StringComparer.OrdinalIgnoreCase);
+            return obj.Concat(art).Concat(new[] { CoinItemId }).Distinct(StringComparer.OrdinalIgnoreCase);
         }
 
         public void AddItem(string actorId, string itemId, int qty)
@@ -206,9 +214,9 @@ namespace Rpg.Dialogue
         /// </summary>
         public bool IsHeroInventoryFullForDistinctPickup(string itemId)
         {
-            if (string.IsNullOrWhiteSpace(itemId) || !IsKnownItem(itemId))
+            var trimmed = NormalizeItemId(itemId);
+            if (string.IsNullOrWhiteSpace(trimmed) || !IsKnownItem(trimmed))
                 return false;
-            var trimmed = itemId.Trim();
             var actor = GetActor(HeroActorId);
             var e = actor.entries.FirstOrDefault(x => string.Equals(x.itemId, trimmed, StringComparison.OrdinalIgnoreCase));
             if (e != null && IsStackable(trimmed))
@@ -218,12 +226,13 @@ namespace Rpg.Dialogue
 
         public bool TryAddItem(string actorId, string itemId, int qty)
         {
-            if (string.IsNullOrWhiteSpace(actorId) || string.IsNullOrWhiteSpace(itemId) || qty <= 0)
+            var normalizedItemId = NormalizeItemId(itemId);
+            if (string.IsNullOrWhiteSpace(actorId) || string.IsNullOrWhiteSpace(normalizedItemId) || qty <= 0)
                 return false;
-            if (!IsKnownItem(itemId))
+            if (!IsKnownItem(normalizedItemId))
                 return false;
             if (string.Equals(actorId.Trim(), HeroActorId, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(itemId.Trim(), GameConstants.LiveChickenItemId, StringComparison.OrdinalIgnoreCase))
+                && string.Equals(normalizedItemId, GameConstants.LiveChickenItemId, StringComparison.OrdinalIgnoreCase))
             {
                 var actor = GetActor(actorId);
                 var existing = actor.entries.FirstOrDefault(x =>
@@ -237,12 +246,12 @@ namespace Rpg.Dialogue
             }
 
             var actor2 = GetActor(actorId);
-            var e = actor2.entries.FirstOrDefault(x => string.Equals(x.itemId, itemId, StringComparison.OrdinalIgnoreCase));
-            var stackable = IsStackable(itemId);
+            var e = actor2.entries.FirstOrDefault(x => string.Equals(x.itemId, normalizedItemId, StringComparison.OrdinalIgnoreCase));
+            var stackable = IsStackable(normalizedItemId);
             if (e == null && !HasCapacityForNewEntry(actorId, actor2))
                 return false;
             if (e == null || !stackable)
-                actor2.entries.Add(new InventoryEntry { itemId = itemId.Trim(), quantity = stackable ? qty : 1 });
+                actor2.entries.Add(new InventoryEntry { itemId = normalizedItemId, quantity = stackable ? qty : 1 });
             else
                 e.quantity += qty;
             Save();
@@ -251,12 +260,13 @@ namespace Rpg.Dialogue
 
         public bool RemoveItem(string actorId, string itemId, int qty)
         {
-            if (string.IsNullOrWhiteSpace(actorId) || string.IsNullOrWhiteSpace(itemId) || qty <= 0)
+            var normalizedItemId = NormalizeItemId(itemId);
+            if (string.IsNullOrWhiteSpace(actorId) || string.IsNullOrWhiteSpace(normalizedItemId) || qty <= 0)
                 return false;
             var actor = GetActorOrNull(actorId);
             if (actor == null)
                 return false;
-            var e = actor.entries.FirstOrDefault(x => string.Equals(x.itemId, itemId, StringComparison.OrdinalIgnoreCase));
+            var e = actor.entries.FirstOrDefault(x => string.Equals(x.itemId, normalizedItemId, StringComparison.OrdinalIgnoreCase));
             if (e == null || e.quantity < qty)
                 return false;
             e.quantity -= qty;
@@ -268,45 +278,74 @@ namespace Rpg.Dialogue
 
         public bool TryTransfer(string fromActorId, string toActorId, string itemId, int qty)
         {
+            var normalizedItemId = NormalizeItemId(itemId);
             if (qty <= 0)
                 qty = 1;
-            if (!RemoveItem(fromActorId, itemId, qty))
+            if (!RemoveItem(fromActorId, normalizedItemId, qty))
                 return false;
-            if (TryAddItem(toActorId, itemId, qty))
+            if (TryAddItem(toActorId, normalizedItemId, qty))
                 return true;
-            TryAddItem(fromActorId, itemId, qty);
+            TryAddItem(fromActorId, normalizedItemId, qty);
             return false;
         }
 
         public bool TryTrade(string actorAId, string actorBId, string actorAItemId, int actorAQty, string actorBItemId, int actorBQty)
         {
+            var actorAItemNormalized = NormalizeItemId(actorAItemId);
+            var actorBItemNormalized = NormalizeItemId(actorBItemId);
             var aQty = Mathf.Max(1, actorAQty);
             var bQty = Mathf.Max(1, actorBQty);
-            if (!HasAtLeast(actorAId, actorAItemId, aQty) || !HasAtLeast(actorBId, actorBItemId, bQty))
+            if (!HasAtLeast(actorAId, actorAItemNormalized, aQty) || !HasAtLeast(actorBId, actorBItemNormalized, bQty))
                 return false;
-            if (!RemoveItem(actorAId, actorAItemId, aQty))
+            if (!RemoveItem(actorAId, actorAItemNormalized, aQty))
                 return false;
-            if (!RemoveItem(actorBId, actorBItemId, bQty))
+            if (!RemoveItem(actorBId, actorBItemNormalized, bQty))
             {
-                AddItem(actorAId, actorAItemId, aQty);
+                AddItem(actorAId, actorAItemNormalized, aQty);
                 return false;
             }
-            if (!TryAddItem(actorAId, actorBItemId, bQty))
+            if (!TryAddItem(actorAId, actorBItemNormalized, bQty))
             {
-                TryAddItem(actorAId, actorAItemId, aQty);
-                TryAddItem(actorBId, actorBItemId, bQty);
+                TryAddItem(actorAId, actorAItemNormalized, aQty);
+                TryAddItem(actorBId, actorBItemNormalized, bQty);
                 return false;
             }
 
-            if (!TryAddItem(actorBId, actorAItemId, aQty))
+            if (!TryAddItem(actorBId, actorAItemNormalized, aQty))
             {
-                RemoveItem(actorAId, actorBItemId, bQty);
-                TryAddItem(actorAId, actorAItemId, aQty);
-                TryAddItem(actorBId, actorBItemId, bQty);
+                RemoveItem(actorAId, actorBItemNormalized, bQty);
+                TryAddItem(actorAId, actorAItemNormalized, aQty);
+                TryAddItem(actorBId, actorBItemNormalized, bQty);
                 return false;
             }
 
             return true;
+        }
+
+        public void EnsureHeroStartingPurse(int startingPurseCoins)
+        {
+            var targetCoins = Mathf.Max(0, startingPurseCoins);
+            if (targetCoins <= 0)
+                return;
+            EnsureActor(HeroActorId);
+            var actor = GetActor(HeroActorId);
+            var current = actor.entries.FirstOrDefault(x => string.Equals(x.itemId, CoinItemId, StringComparison.OrdinalIgnoreCase));
+            var currentCoins = current != null ? Mathf.Max(0, current.quantity) : 0;
+            if (currentCoins >= targetCoins)
+                return;
+            TryAddItem(HeroActorId, CoinItemId, targetCoins - currentCoins);
+        }
+
+        public bool TryPayWage(string payerActorId, string recipientActorId, int coins)
+        {
+            var amount = Mathf.Max(1, coins);
+            return TryTransfer(payerActorId, recipientActorId, CoinItemId, amount);
+        }
+
+        public bool TryGrantReward(string granterActorId, string recipientActorId, int coins)
+        {
+            var amount = Mathf.Max(1, coins);
+            return TryTransfer(granterActorId, recipientActorId, CoinItemId, amount);
         }
 
         public string BuildPromptBlock(string heroActorId, string npcActorId)
@@ -381,6 +420,8 @@ namespace Rpg.Dialogue
         {
             if (string.IsNullOrWhiteSpace(itemId))
                 return "item";
+            if (IsCoinAlias(itemId))
+                return "coins";
             var entry = FindCatalogEntry(itemId);
             if (entry != null && !string.IsNullOrWhiteSpace(entry.label))
                 return InferShortNameFromItemId(entry.label);
@@ -395,12 +436,16 @@ namespace Rpg.Dialogue
 
         bool IsStackable(string itemId)
         {
+            if (IsCoinAlias(itemId))
+                return true;
             var entry = FindCatalogEntry(itemId);
             return entry == null || entry.stackable;
         }
 
         int GetTradeValue(string itemId)
         {
+            if (IsCoinAlias(itemId))
+                return 1;
             var entry = FindCatalogEntry(itemId);
             return entry != null ? Mathf.Max(0, entry.tradeValue) : 0;
         }
@@ -409,9 +454,30 @@ namespace Rpg.Dialogue
         {
             if (string.IsNullOrWhiteSpace(itemId))
                 return null;
-            var key = itemId.Trim();
+            var key = NormalizeItemId(itemId);
             return _catalog?.objects?.FirstOrDefault(x => string.Equals(x.id, key, StringComparison.OrdinalIgnoreCase))
                    ?? _catalog?.artifacts?.FirstOrDefault(x => string.Equals(x.id, key, StringComparison.OrdinalIgnoreCase));
+        }
+
+        static string NormalizeItemId(string itemId)
+        {
+            if (string.IsNullOrWhiteSpace(itemId))
+                return string.Empty;
+            var normalized = itemId.Trim();
+            return IsCoinAlias(normalized) ? CoinItemId : normalized;
+        }
+
+        static bool IsCoinAlias(string itemId)
+        {
+            if (string.IsNullOrWhiteSpace(itemId))
+                return false;
+            var trimmed = itemId.Trim();
+            foreach (var alias in CoinAliases)
+            {
+                if (string.Equals(trimmed, alias, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            return false;
         }
 
         static string InferShortNameFromItemId(string itemId)
