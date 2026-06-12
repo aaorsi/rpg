@@ -1,151 +1,75 @@
-# RPG — LLM-driven Unity island adventure
+# RPG - A Living Island Village
 
-A **Unity 6** fantasy RPG where NPC conversations, quest progression, and session narrative are driven by a local **LLM** (Ollama). A **Python policy orchestrator** sidecar validates JSON contracts, enforces NPC-type policies, and keeps Unity and the model aligned on the same wire shapes.
+Step into a fantasy island where every villager has a voice, a memory, and an agenda - then decide whether you will become their trusted ally, their paid strategist, their political symbol, or the outsider who reshapes the village by force of personality.
 
-The git repo tracks **scripts, dialogue data, and minimal Unity configs** (~2 MB). 3D/audio Asset Store packs are imported locally after clone — see [DEV_SETUP.md](DEV_SETUP.md) for the full fresh-clone checklist.
+A Unity fantasy RPG where villagers are no longer static quest terminals - they remember, plan, gossip, negotiate, and react to how the hero behaves.
 
----
-
-## What you get
-
-- **Island exploration** — NavMesh movement, wildlife, hazards (tigers, spiders, underwater death), hunger, spell books, castle/warehouse locations.
-- **LLM dialogue** — Per-NPC personas, memory, conversation summaries, inventory-aware prompts, proposed NPC actions (trade, guide, follow).
-- **Procedural narrative canon** — Session seed, milestones, trade requirements, and fail-forward when the player stalls.
-- **Policy layer** — Pydantic models as the single source of truth for dialogue turn JSON; generated schemas and pytest guardrails.
+You can still explore, fight, and discover the island, but the heart of the game is now social: your conversations and deals with villagers can reshape village politics and story direction.
 
 ---
 
-## Architecture (zoom-out)
+## What This Game Feels Like
 
-Three cooperating layers:
+You wake up on a mysterious island with a populated village nearby.
 
-```mermaid
-flowchart TB
-  player["Player input"] --> unity["Unity game"]
-  unity --> dm["DialogueManager"]
-  dm --> ppc["PythonPolicyClient"]
-  ppc --> api["FastAPI orchestrator"]
-  api --> ollama["Ollama"]
-  ollama --> api
-  api --> pydantic["Pydantic validate"]
-  pydantic --> policy["PolicyRegistry"]
-  policy --> envelope["PolicyEnvelope"]
-  envelope --> dm
-  dm -->|"fallback"| ollamaDirect["OllamaClient"]
-  ollamaDirect --> validator["ResponseValidator"]
-  validator --> dm
-```
+- Talk to NPCs who have their own style, goals, and motives.
+- Make deals: hire people, give advice, persuade, trade, or refuse.
+- Watch villagers react to each other, not just to you.
+- Build (or lose) reputation over time through your choices.
 
-| Layer | Role | Key paths |
-|-------|------|-----------|
-| **Unity game** | Gameplay, UI, persistence, prompt assembly, action execution | `Assets/Scripts/` |
-| **Policy orchestrator** | HTTP API, LLM calls, tolerant parse → strict validate, NPC policy | `services/policy_orchestrator/` |
-| **Ollama** | Local (or cloud) chat model | `http://127.0.0.1:11434` default |
-
-**Preferred path:** Unity posts a `DialogueTurnRequest` to `POST /v1/dialogue/turn`; the sidecar builds the Ollama prompt, parses messy model JSON into `LlmDialogueOutput`, applies `PolicyRegistry` rules, and returns a `PolicyEnvelope`.
-
-**Fallback path:** Unity calls Ollama directly via `OllamaClient` + `ResponseValidator` when `usePythonPolicyOrchestrator` is off in `DefaultOllamaSettings`.
+This repo tracks scripts, dialogue data, and lightweight Unity config. Art/audio packs are imported locally after clone (see [DEV_SETUP.md](DEV_SETUP.md)).
 
 ---
 
-## Module map
+## New Autonomy Features (Latest Update)
 
-Domain vocabulary aligned with the dialogue pipeline and recent refactors.
+The village now runs as a lightweight social simulation:
 
-### `Rpg.Dialogue` — conversation hub
-
-| Module | Responsibility |
-|--------|----------------|
-| `DialogueManager` | Singleton hub: session lifecycle, turn submission, UI callbacks, debug commands |
-| `DialogueSession` / `DialogueUIController` | Transcript windowing and presentation |
-| `PythonPolicyClient` / `PythonPolicyDtos` | HTTP to sidecar (`8787`) |
-| `OllamaClient` / `PromptComposer` | Direct LLM path and system-prompt assembly |
-| `ResponseValidator` | Tolerant JSON parse; mirrors `dialogue_parsing.py` |
-| `CommitSuccessfulTurn` path | Shared post-turn commit (session, memory, transcript, fail-forward) |
-| `DialogueTurnCommitLogic` | Pure fail-forward + willingness helpers (EditMode tested) |
-| `NpcActionExecutor` | Runs proposed actions (move, trade, give/receive, follow) |
-| `InventoryService` / `QuestStateService` / `FailForwardService` | Economy, milestones, stall recovery |
-| `NarrativeGenerationService` | Session canon from seed + LLM or fallback scaffold |
-| `ChickenTheftDialogueScenario` | Scenario-specific theft confrontation state |
-| `SidekickFollowActionSynthesizer` | Heuristic `follow_hero` when model omits action |
-| `NpcActionTypes` | Constants aligned with Python `PolicyRegistry` |
-
-### `Rpg.Npc` — world characters
-
-NPC bindings (`NpcDialogueBinding`), definitions (`NpcDefinition`), ambient AI, ghoul menace, sidekick follow, chicken theft confrontation, guide-to-location.
-
-### `Rpg.Player` — hero
-
-Click-to-move (`PlayerClickMove`), interact (`PlayerInteractor` → `DialogueManager.TryStartDialogue`), combat, hunger, pickups, underwater death.
-
-### `Rpg.UI` — screens and HUD
-
-Title screen (Ollama local/cloud selection), dialogue panel, intro overlay, health bar, game over.
-
-### `Rpg.Core` / `Rpg.GameState` / `Rpg.Gameplay`
-
-`RuntimeLevelBootstrap` wires systems at play; world state (year acknowledgment); castle/portals and level tooling.
-
-### `services/policy_orchestrator` — contract layer
-
-| Module | Responsibility |
-|--------|----------------|
-| `app/models.py` | **Canonical** Pydantic models (`StrictCamelModel` inbound, `CamelModel` LLM/outbound) |
-| `app/orchestrator.py` | Turn / summary / narrative orchestration |
-| `app/dialogue_parsing.py` | Forgiving LLM JSON → `LlmDialogueOutput` |
-| `app/policies.py` | NPC-type allow-lists (normal, sidekick, ghoul) |
-| `app/schema_export.py` | Generates `Assets/StreamingAssets/Dialogue/schema/*.json` |
+- **Persistent personas** for villagers (personality, traits, goals, capabilities).
+- **Budgeted autonomy loop** where villagers deliberate and execute plans over time.
+- **Structured social outcomes** from dialogue (`offer_task`, `accept_task`, `advice_given`, `persuasion`, `payment`).
+- **Agreement lifecycle** for contracts like hire/advice/persuasion with payout handling.
+- **Village opinion and gossip propagation** with bounded spread.
+- **Standing-driven group asks** (for example, villagers asking you to run for mayor or take a religious leadership role).
+- **Ambient villager chatter** generated from persona + sentiment context.
+- **Debug panel + telemetry** to inspect autonomy behavior live during play.
 
 ---
 
-## Dialogue turn (happy path)
+## What You Can Do In-Game
 
-1. **Trigger** — `PlayerInteractor` (E) → `DialogueManager.TryStartDialogue`
-2. **Player line** — `DialogueUIController` → `SubmitPlayerLineFromUi` → `SubmitPlayerLineAsync`
-3. **Context** — World facts, memory, summary, inventory, surroundings, narrative canon, recent turns → `PythonDialogueTurnRequestDto`
-4. **Sidecar** — `POST /v1/dialogue/turn` → Ollama → `parse_dialogue_output` → `LlmDialogueOutput.model_validate` → policy normalize → `PolicyEnvelope`
-5. **Unity** — `ResponseValidator.BuildPayloadFromDialogueDto` → `CommitSuccessfulTurn` → UI, memory, transcript, `NpcActionExecutor` (transfers queued for player accept/decline)
+### Direct interactions
 
----
+- Start conversations and negotiate terms.
+- Hire NPCs for tasks and pay with goods/coin.
+- Offer strategic advice and see whether NPCs adopt it.
+- Persuade skeptical villagers and monitor changing sentiment.
+- Guide sidekicks or receive support from them.
 
-## Villager autonomy loop (Wave 3)
+### Emerging village dynamics
 
-`VillageAgentSimulation` runs an autonomy control loop for `villager_*` NPCs and uses the Python sidecar for plan deliberation.
+- Villagers exchange opinions and influence each other through gossip.
+- NPC-to-NPC chatter makes village life visible even when you are not talking.
+- Strong reputation in specific tracks (leadership, piety, wealth, helpfulness) unlocks group-level asks.
+- Your choices can shift long-term social direction, not just immediate dialogue outcomes.
 
-1. **Registry refresh** (`villagerRefreshSeconds`, default `4s`, floor `0.25s`) keeps the villager set, scheduler participants, and opinion records in sync.
-2. **Opinion pass** queues gossip edges when an NPC is currently executing `chat_with_npc`, then processes up to `maxGossipInteractionsPerTick` interactions per frame (`2` by default).
-3. **Budget gate** allows at most one in-flight deliberation task and only when `VillageDeliberationScheduler` cadence allows (`deliberationCadenceSeconds`, default `2s`, floor `0.05s`).
-4. **Deliberation request** (`PythonNpcDeliberationRequestDto`) sends NPC persona context, world snapshot, current goals/plan, and agreement/opinion context lines to `POST /v1/npc/deliberate`.
-5. **Apply result** stores telemetry on each villager runtime state (`LastDeliberationReason`, `LastDeliberationSource`, `LastError`) and updates the controller plan/goals when steps are returned.
+### Example moments
 
-Data flow for each deliberation tick:
-
-`VillageAgentSimulation` -> `VillageDeliberationScheduler` -> `PythonPolicyClient.NpcDeliberationAsync` -> `FastAPI /v1/npc/deliberate` -> `PolicyOrchestrator` -> `DeliberationPolicy` normalize -> Unity `NpcAgentController.SetPlan(...)`
-
----
-
-## Operational limits and fallback behavior
-
-- **LLM budget cadence:** the scheduler enforces one deliberation release per cadence window (default `2s`) and `VillageAgentSimulation` refuses to start a new deliberation while one is in flight.
-- **Plan-size cap:** Unity clamps accepted plans to `maxPlanStepsPerDeliberation` (default `5`) before applying to runtime state/controllers.
-- **Gossip CPU budget:** opinion propagation is bounded by `maxGossipInteractionsPerTick` and queue capacity (`256` unique pairs) to prevent unbounded per-frame work.
-- **Sidecar disabled/error fallback:** if sidecar deliberation is disabled, returns an error, or returns an empty plan, Unity keeps/rehydrates existing goals + plan and marks source as `fallback`.
-- **Orchestrator fallback steps:** if `/v1/npc/deliberate` parsing/normalization yields no valid steps, the orchestrator emits deterministic fallback steps with `usedFallback=true` in this order: `workIds` -> `locationIds` -> `npcIds` (excluding self) -> `idle_home`.
-- **Contract safety:** inbound request models use `StrictCamelModel` (`extra="forbid"`), so unknown fields fail fast with `422` rather than being silently ignored.
-
-Known risk: if the sidecar repeatedly fails, villagers keep their last known plan; this is stable but can make behavior stale until sidecar health recovers.
+- You help enough villagers, and a leadership movement forms around your candidacy.
+- You solve disputes with payments or mediation, improving helpfulness and wealth perception.
+- You earn trust with one faction but become controversial with another.
 
 ---
 
-## Quick start
+## Quick Start
 
 ### Prerequisites
 
 - Unity **6000.4.x** (`ProjectSettings/ProjectVersion.txt`)
-- [Ollama](https://ollama.com/) with a chat model, e.g. `ollama pull llama3.2`
-- Python 3.x for the sidecar (optional but recommended)
+- [Ollama](https://ollama.com/) with a chat model, for example `llama3.2`
+- Python 3.x (recommended for sidecar services)
 
-### Run the sidecar
+### Run the policy sidecar
 
 ```bash
 cd services/policy_orchestrator
@@ -154,73 +78,112 @@ pip install -r requirements.txt
 uvicorn app.main:app --host 127.0.0.1 --port 8787 --reload
 ```
 
-### Configure Unity
+### Configure Unity and play
 
 1. Open the project in Unity 6000.4.x.
-2. Enable orchestrator flags on `Assets/Resources/DefaultOllamaSettings.asset`: `usePythonPolicyOrchestrator`, `usePythonSummaryService`, `usePythonNarrativeGeneration`.
-3. Start Ollama; confirm `http://127.0.0.1:11434` is reachable.
+2. In `Assets/Resources/DefaultOllamaSettings.asset`, enable:
+   - `usePythonPolicyOrchestrator`
+   - `usePythonSummaryService`
+   - `usePythonNarrativeGeneration`
+3. Ensure Ollama is reachable at `http://127.0.0.1:11434`.
+4. Open `Assets/sc2.unity` and press Play.
 
-### Play
-
-| Scene | Use |
-|-------|-----|
-| `Assets/sc2.unity` | Full island (primary build scene) |
-| `Assets/Scenes/Room_Prototype.unity` | Dialogue prototype slice |
-
-**Controls:** left-click move · **E** talk · **Enter** send line · **Escape** close dialogue
-
-For Asset Store imports, Resources mirrors, Mixamo, and music — follow **[DEV_SETUP.md](DEV_SETUP.md)**.
+Controls: left-click move, **E** interact, **Enter** send line, **Escape** close dialogue.
 
 ---
 
-## Repository layout
+## Architecture (Introduced Gradually)
 
-| Path | Contents |
-|------|----------|
-| `Assets/Scripts/` | C# game code (`Rpg.*` namespaces) |
-| `Assets/StreamingAssets/Dialogue/` | Prompt templates, world/npc JSON, generated schemas |
-| `Assets/Resources/` | Runtime settings (`DefaultOllamaSettings`), UI prefabs, build mirrors |
-| `Assets/Editor/Tests/EditMode/` | NUnit tests for pure dialogue logic |
-| `services/policy_orchestrator/` | FastAPI sidecar + pytest suite |
-| `DEV_SETUP.md` | Fresh clone, Asset Store, Resources, playtest |
-| `MISSION.md` | Learning focus: Pydantic contract layer |
-| `docs/agents/` | Issue tracker and triage conventions |
+If you are only here to play or tweak content, you can skip this section.
 
-**Git ignores** most `Assets/**` vendor art; only scripts, dialogue data, and selected configs are tracked.
+At a high level:
 
----
+1. **Unity** handles world simulation, UI, inventory, and action execution.
+2. **Python policy orchestrator** validates and normalizes model output.
+3. **Ollama** provides dialogue/deliberation generation.
 
-## Contracts and schemas
-
-- **Source of truth:** `services/policy_orchestrator/app/models.py`
-- **Generated artifacts:** `Assets/StreamingAssets/Dialogue/schema/` (run `python scripts/generate_schemas.py`)
-- **Sync test:** `pytest` → `test_schema_sync.py` fails if schemas drift
-- **Unity mirror:** `ResponseValidator.cs` + `PythonPolicyDtos.cs` consume the same camelCase shapes
-
-Inbound Unity requests use `StrictCamelModel` (`extra="forbid"`). LLM output uses tolerant parsing then `CamelModel` validation.
-
----
-
-## Development
-
-### Python tests
-
-```bash
-cd services/policy_orchestrator && source .venv/bin/activate && pytest
+```mermaid
+flowchart TB
+  player["Player input"] --> unity["Unity runtime"]
+  unity --> dm["DialogueManager"]
+  dm --> sidecar["PythonPolicyClient"]
+  sidecar --> api["FastAPI orchestrator"]
+  api --> model["Ollama"]
+  model --> api
+  api --> policy["Pydantic + PolicyRegistry"]
+  policy --> envelope["PolicyEnvelope"]
+  envelope --> dm
+  dm -->|"fallback path"| direct["OllamaClient + ResponseValidator"]
 ```
 
-### Unity tests
-
-Open **Window → General → Test Runner → EditMode** (requires `com.unity.test-framework` in `Packages/manifest.json`).
-
-### Issues and agents
-
-GitHub Issues: [aaorsi/rpg](https://github.com/aaorsi/rpg). Agent workflow docs: `AGENTS.md`, `docs/agents/issue-tracker.md`.
+The sidecar is the preferred path. A direct Unity fallback path still exists for resilience.
 
 ---
 
-## Further reading
+## Core Runtime Loops
 
-- [DEV_SETUP.md](DEV_SETUP.md) — complete setup, asset packs, authoring
-- [services/policy_orchestrator/README.md](services/policy_orchestrator/README.md) — API endpoints
-- [MISSION.md](MISSION.md) — Pydantic learning mission for this repo
+### Dialogue loop
+
+1. Player speaks to NPC.
+2. Unity builds context (facts, memory, summary, inventory, surroundings).
+3. Sidecar validates model response and applies NPC-type policy.
+4. Unity commits results (dialogue, actions, agreements, milestones, memory).
+
+### Village autonomy loop
+
+`VillageAgentSimulation` periodically:
+
+- refreshes villager participants,
+- processes gossip interactions,
+- schedules one deliberation at a time (cadence budget),
+- applies plan results to `NpcAgentController`.
+
+This keeps behavior dynamic without overwhelming local hardware.
+
+---
+
+## Operational Limits and Safety Behavior
+
+- One deliberation is allowed in flight at a time.
+- Plan steps are capped before application.
+- Gossip processing uses per-tick budget limits.
+- If sidecar output is invalid or unavailable, deterministic fallback behavior is applied.
+- Request contracts are strict on input (`StrictCamelModel`) to fail fast on drift.
+
+Known tradeoff: prolonged sidecar failure keeps villagers stable but can make behavior temporarily stale.
+
+---
+
+## Repository Guide
+
+| Path | What is here |
+|------|---------------|
+| `Assets/Scripts/` | Unity gameplay + autonomy code (`Rpg.*`) |
+| `Assets/StreamingAssets/Dialogue/` | Prompt templates and dialogue schemas |
+| `Assets/Editor/Tests/EditMode/` | Unity EditMode tests |
+| `services/policy_orchestrator/` | FastAPI sidecar and pytest suite |
+| `DEV_SETUP.md` | Full setup including asset imports |
+
+---
+
+## Testing
+
+### Python
+
+```bash
+cd services/policy_orchestrator
+source .venv/bin/activate
+pytest
+```
+
+### Unity
+
+Use **Window -> General -> Test Runner -> EditMode**.
+
+---
+
+## Further Reading
+
+- [DEV_SETUP.md](DEV_SETUP.md) - full setup and content pipeline
+- [services/policy_orchestrator/README.md](services/policy_orchestrator/README.md) - API details
+- [MISSION.md](MISSION.md) - project learning context
