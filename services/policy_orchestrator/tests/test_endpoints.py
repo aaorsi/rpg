@@ -97,3 +97,75 @@ def test_unsupported_schema_version_rejected() -> None:
         data = client.post("/v1/dialogue/turn", json=body).json()
     assert data["ok"] is False
     assert data["error"]["code"] == "unsupported_schema_version"
+
+
+def test_npc_persona_generate_success() -> None:
+    reply = (
+        '{"personas": [{"npcId": "merchant_1", "name": "Mira", "npcType": "normal", '
+        '"occupation": "Trader", "personality": "Cautious but fair", '
+        '"socialTraits": {"helpfulness": "medium", "skepticism": "high"}, '
+        '"keyInformation": ["Runs the west market stall"], '
+        '"goals": ["Protect trade routes"], '
+        '"capabilities": ["barter", "appraise goods"], '
+        '"followerRecruitmentRequirements": ["Return her missing ledger"]}]}'
+    )
+    body = {
+        "model": "llama3.2",
+        "npcs": [
+            {
+                "npcId": "merchant_1",
+                "name": "Mira",
+                "npcType": "normal",
+                "archetypeId": "cautious_trader",
+                "archetypeOccupation": "Trader",
+                "archetypePersonality": "Pragmatic and careful",
+                "archetypeSocialTraits": {"helpfulness": "medium", "skepticism": "high"},
+                "goalHints": ["Preserve profit margins"],
+            }
+        ],
+    }
+    with _client(reply) as client:
+        data = client.post("/v1/npc/persona/generate", json=body).json()
+    assert data["ok"] is True
+    assert len(data["persona"]["personas"]) == 1
+    persona = data["persona"]["personas"][0]
+    assert persona["npcId"] == "merchant_1"
+    assert persona["occupation"] == "Trader"
+    assert "Protect trade routes" in persona["goals"]
+
+
+def test_npc_persona_generate_malformed_output_falls_back_to_defaults() -> None:
+    body = {
+        "model": "llama3.2",
+        "npcs": [
+            {
+                "npcId": "farmer_1",
+                "name": "Ira",
+                "npcType": "normal",
+                "archetypeId": "loyal_farmer",
+                "archetypeOccupation": "Farmer",
+                "archetypePersonality": "Protective and disciplined",
+                "archetypeSocialTraits": {"helpfulness": "high"},
+                "keyInformationHints": ["Owns the northern wheat fields"],
+                "goalHints": ["Keep the family safe"],
+                "capabilityHints": ["farming"],
+            },
+            {
+                "npcId": "guide_1",
+                "name": "Sora",
+                "npcType": "sidekick",
+                "archetypeId": "scout",
+                "followerRecruitmentHints": ["Complete the beacon route"],
+            },
+        ],
+    }
+    with _client("<<not json>>") as client:
+        data = client.post("/v1/npc/persona/generate", json=body).json()
+    assert data["ok"] is True
+    personas = data["persona"]["personas"]
+    assert [p["npcId"] for p in personas] == ["farmer_1", "guide_1"]
+    assert personas[0]["occupation"] == "Farmer"
+    assert personas[0]["personality"] == "Protective and disciplined"
+    assert personas[0]["keyInformation"] == ["Owns the northern wheat fields"]
+    assert personas[1]["occupation"] == "Villager"
+    assert personas[1]["followerRecruitmentRequirements"] == ["Complete the beacon route"]

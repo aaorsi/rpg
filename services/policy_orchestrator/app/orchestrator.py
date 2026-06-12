@@ -13,10 +13,14 @@ from .models import (
     ConversationSummaryResponse,
     DialogueTurnRequest,
     DialogueTurnResponse,
+    GeneratedNpcPersona,
     LlmDialogueOutput,
     MessageDto,
     NarrativeGenerationRequest,
     NarrativeGenerationResponse,
+    NpcPersonaGenerationRequest,
+    NpcPersonaSeed,
+    NpcPersonaGenerationResponse,
     PolicyEnvelope,
     PolicyError,
     SessionNarrativeCanon,
@@ -134,6 +138,28 @@ class PolicyOrchestrator:
         except Exception as ex:
             return self._fail("narrative_failed", rid, ex)
 
+    async def run_npc_persona_generation(self, request: NpcPersonaGenerationRequest) -> PolicyEnvelope:
+        rid = request.request_id
+        version_error = self._reject_unsupported_version(request.schema_version, rid)
+        if version_error is not None:
+            return version_error
+        try:
+            raw = await self._adapter.chat(
+                base_url=request.provider_base_url or _DEFAULT_PROVIDER,
+                model=request.model,
+                messages=self._build_persona_messages(request),
+                api_token=request.api_token,
+            )
+            personas = self._parse_personas_with_fallback(raw=raw, seeds=request.npcs)
+            response = NpcPersonaGenerationResponse(
+                request_id=rid,
+                personas=personas,
+                raw_assistant=raw,
+            )
+            return PolicyEnvelope(ok=True, persona=response)
+        except Exception as ex:
+            return self._fail("npc_persona_generation_failed", rid, ex)
+
     # --- Helpers ------------------------------------------------------------
 
     def _to_dialogue_response(
@@ -217,6 +243,98 @@ class PolicyOrchestrator:
         messages.extend(turn.recent_turns)
         messages.append(MessageDto(role="user", content=turn.latest_player_line))
         return messages
+
+    def _build_persona_messages(self, request: NpcPersonaGenerationRequest) -> List[MessageDto]:
+        system = (
+            "You synthesize RPG NPC personas from archetype inputs. "
+            "Return ONLY a JSON object with key `personas`, where each entry uses keys: "
+            "npcId, name, npcType, occupation, personality, socialTraits, keyInformation, goals, "
+            "capabilities, followerRecruitmentRequirements. "
+            "Every output persona must keep the same npcId from the input batch."
+        )
+        user = (
+            "Generate one persona per input NPC. Use archetype fields as anchors and keep output concise.\n"
+            f"batch={json.dumps([npc.model_dump(by_alias=True) for npc in request.npcs])}"
+        )
+        return [
+            MessageDto(role="system", content=system),
+            MessageDto(role="user", content=user),
+        ]
+
+    def _parse_personas_with_fallback(self, raw: str, seeds: List[NpcPersonaSeed]) -> List[GeneratedNpcPersona]:
+        seed_lookup = {seed.npc_id: seed for seed in seeds}
+        by_npc_id: dict[str, GeneratedNpcPersona] = {}
+        try:
+            obj = parse_json_object(raw)
+            candidates = obj.get("personas") or obj.get("npcProfiles") or obj.get("profiles")
+            if isinstance(candidates, dict):
+                candidates = [candidates]
+            if not isinstance(candidates, list):
+                candidates = []
+            for candidate in candidates:
+                if not isinstance(candidate, dict):
+                    continue
+                npc_id = str(candidate.get("npcId") or candidate.get("npc_id") or "").strip()
+                if not npc_id:
+                    continue
+                seed = seed_lookup.get(npc_id)
+                if seed is None:
+                    continue
+                try:
+                    by_npc_id[npc_id] = self._normalize_persona(candidate, seed)
+                except ValidationError:
+                    by_npc_id[npc_id] = self._fallback_persona(seed)
+        except ValueError:
+            by_npc_id = {}
+
+        return [by_npc_id.get(seed.npc_id) or self._fallback_persona(seed) for seed in seeds]
+
+    def _normalize_persona(self, raw_persona: dict, seed: NpcPersonaSeed) -> GeneratedNpcPersona:
+        fallback = self._fallback_persona(seed)
+        raw_social_traits = raw_persona.get("socialTraits") or raw_persona.get("social_traits")
+        social_traits: dict[str, str] = {}
+        if isinstance(raw_social_traits, dict):
+            for key, value in raw_social_traits.items():
+                k = str(key or "").strip()
+                v = str(value or "").strip().lower()
+                if k and v:
+                    social_traits[k] = v
+        persona = GeneratedNpcPersona(
+            npc_id=str(raw_persona.get("npcId") or raw_persona.get("npc_id") or fallback.npc_id).strip()
+            or fallback.npc_id,
+            name=str(raw_persona.get("name") or fallback.name).strip() or fallback.name,
+            npc_type=str(raw_persona.get("npcType") or raw_persona.get("npc_type") or fallback.npc_type).strip()
+            or fallback.npc_type,
+            occupation=str(raw_persona.get("occupation") or fallback.occupation).strip() or fallback.occupation,
+            personality=str(raw_persona.get("personality") or fallback.personality).strip() or fallback.personality,
+            social_traits=social_traits or dict(fallback.social_traits),
+            key_information=_list_of_strings(raw_persona.get("keyInformation") or raw_persona.get("key_information"))
+            or list(fallback.key_information),
+            goals=_list_of_strings(raw_persona.get("goals")) or list(fallback.goals),
+            capabilities=_list_of_strings(raw_persona.get("capabilities")) or list(fallback.capabilities),
+            follower_recruitment_requirements=_list_of_strings(
+                raw_persona.get("followerRecruitmentRequirements")
+                or raw_persona.get("follower_recruitment_requirements")
+            )
+            or list(fallback.follower_recruitment_requirements),
+        )
+        if persona.npc_id != seed.npc_id:
+            return fallback
+        return persona
+
+    def _fallback_persona(self, seed: NpcPersonaSeed) -> GeneratedNpcPersona:
+        return GeneratedNpcPersona(
+            npc_id=seed.npc_id,
+            name=seed.name or seed.npc_id,
+            npc_type=seed.npc_type.value,
+            occupation=seed.archetype_occupation or "Villager",
+            personality=seed.archetype_personality or "Reserved and practical.",
+            social_traits=dict(seed.archetype_social_traits),
+            key_information=list(seed.key_information_hints),
+            goals=list(seed.goal_hints),
+            capabilities=list(seed.capability_hints),
+            follower_recruitment_requirements=list(seed.follower_recruitment_hints),
+        )
 
 
 def _list_of_strings(value: object) -> List[str]:
