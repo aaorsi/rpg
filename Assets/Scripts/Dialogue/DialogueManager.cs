@@ -798,6 +798,37 @@ namespace Rpg.Dialogue
                     : new List<string> { "dialogue", "give", "trade", "guide_to_location", "refer_to_npc" };
         }
 
+        string ResolveActivePlanContext(string npcId)
+        {
+            if (string.IsNullOrWhiteSpace(npcId))
+                return string.Empty;
+            foreach (var binding in UnityEngine.Object.FindObjectsByType<NpcDialogueBinding>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
+            {
+                if (binding == null || binding.Definition == null || string.IsNullOrWhiteSpace(binding.Definition.npcId))
+                    continue;
+                if (!string.Equals(binding.Definition.npcId.Trim(), npcId.Trim(), StringComparison.OrdinalIgnoreCase))
+                    continue;
+                var agent = binding.GetComponent<NpcAgentController>();
+                if (agent == null)
+                    return string.Empty;
+                if (!agent.IsExecutingPlan)
+                    return "No active scheduler plan.";
+                var step = string.IsNullOrWhiteSpace(agent.CurrentPrimitiveType) ? "unknown_step" : agent.CurrentPrimitiveType.Trim();
+                return $"Executing {step}; remaining_steps={agent.RemainingStepCount}.";
+            }
+
+            return string.Empty;
+        }
+
+        static string ResolveActiveGoalsContext(string npcId, GeneratedNpcProfile profile, NpcPersona persona)
+        {
+            var goals = ResolveGoals(profile, persona);
+            if (goals == null || goals.Count == 0)
+                return string.Empty;
+            var key = string.IsNullOrWhiteSpace(npcId) ? "npc" : npcId.Trim();
+            return $"{key} goals: {string.Join(" | ", goals)}";
+        }
+
         bool TryHandleNarrativeDebugCommand(string line)
         {
             if (string.IsNullOrWhiteSpace(line) || !line.StartsWith("/", StringComparison.Ordinal))
@@ -815,6 +846,9 @@ namespace Rpg.Dialogue
                 var inventoryBlock = _inventory != null
                     ? _inventory.BuildPromptBlock(InventoryService.HeroActorId, _activeNpc.npcId)
                     : "(Inventory unavailable)";
+                TryGetNpcProfile(_activeNpc.npcId, out var profile);
+                var persona = ResolveOrCreatePersona(_activeNpc, profile);
+                var npcType = ResolveNpcType(_activeNpc.npcId);
                 var msgs = _promptComposer.BuildMessages(
                     _activeNpc,
                     world,
@@ -823,7 +857,13 @@ namespace Rpg.Dialogue
                     _sessionBreakInset,
                     _narrativeCanon,
                     npcSummary,
-                    inventoryBlock);
+                    inventoryBlock,
+                    ResolvePersonality(profile, persona),
+                    ResolveSocialTraits(profile, persona),
+                    ResolveGoals(profile, persona),
+                    ResolveCapabilities(profile, persona, npcType),
+                    ResolveActivePlanContext(_activeNpc.npcId),
+                    ResolveActiveGoalsContext(_activeNpc.npcId, profile, persona));
                 var systemPrompt = msgs != null && msgs.Count > 0 ? msgs[0].content ?? string.Empty : string.Empty;
                 if (systemPrompt.Length > 6000)
                     systemPrompt = systemPrompt.Substring(0, 6000) + "\n\n...[truncated]";
@@ -1145,13 +1185,15 @@ namespace Rpg.Dialogue
             var inventoryBlock = _inventory != null && _activeNpc != null
                 ? _inventory.BuildPromptBlock(InventoryService.HeroActorId, _activeNpc.npcId)
                 : "(Inventory unavailable)";
+            if (_activeNpc == null)
+                return DialogueResult.FromError("No active NPC.");
+            TryGetNpcProfile(_activeNpc.npcId, out var profile);
+            var persona = ResolveOrCreatePersona(_activeNpc, profile);
+            var type = ResolveNpcType(_activeNpc.npcId);
+            var activePlanContext = ResolveActivePlanContext(_activeNpc.npcId);
+            var activeGoalsContext = ResolveActiveGoalsContext(_activeNpc.npcId, profile, persona);
             if (_ollamaSettings.usePythonPolicyOrchestrator && _pythonClient != null && _activeNpc != null)
             {
-                TryGetNpcProfile(_activeNpc.npcId, out var profile);
-                var persona = ResolveOrCreatePersona(_activeNpc, profile);
-                var type = GhoulMenaceController.IsGhoulStoryNpcId(_activeNpc.npcId)
-                    ? "ghoul"
-                    : (SidekickCompanion.BindingRootHasSidekick(_activeNpc.npcId) ? "sidekick" : "normal");
                 var req = new PythonDialogueTurnRequestDto
                 {
                     requestId = Guid.NewGuid().ToString("N"),
@@ -1169,7 +1211,9 @@ namespace Rpg.Dialogue
                         personality = ResolvePersonality(profile, persona),
                         socialTraits = ResolveSocialTraits(profile, persona),
                         goals = ResolveGoals(profile, persona),
-                        capabilities = ResolveCapabilities(profile, persona, type)
+                        capabilities = ResolveCapabilities(profile, persona, type),
+                        activePlanContext = activePlanContext,
+                        activeGoalsContext = activeGoalsContext
                     },
                     turn = new PythonTurnContextDto
                     {
@@ -1202,7 +1246,13 @@ namespace Rpg.Dialogue
                 _sessionBreakInset,
                 _narrativeCanon,
                 npcSummary,
-                inventoryBlock);
+                inventoryBlock,
+                ResolvePersonality(profile, persona),
+                ResolveSocialTraits(profile, persona),
+                ResolveGoals(profile, persona),
+                ResolveCapabilities(profile, persona, type),
+                activePlanContext,
+                activeGoalsContext);
 
             var model = string.IsNullOrWhiteSpace(_activeNpc.ollamaModelOverride)
                 ? _ollamaSettings.model

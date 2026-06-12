@@ -11,6 +11,7 @@ from app.orchestrator import PolicyOrchestrator
 class FakeAdapter:
     def __init__(self, reply: str) -> None:
         self.reply = reply
+        self.last_messages: List[MessageDto] = []
 
     async def chat(
         self,
@@ -20,6 +21,7 @@ class FakeAdapter:
         api_token=None,
         max_tokens: int = 512,
     ) -> str:
+        self.last_messages = list(messages)
         return self.reply
 
 
@@ -84,6 +86,36 @@ def test_dialogue_turn_unparseable_returns_error_envelope() -> None:
         data = client.post("/v1/dialogue/turn", json=body).json()
     assert data["ok"] is False
     assert data["error"]["code"] == "dialogue_failed"
+
+
+def test_dialogue_turn_prompt_includes_persona_and_autonomy_context() -> None:
+    adapter = FakeAdapter('{"say":"hi"}')
+    orchestrator = PolicyOrchestrator(adapter)
+    app.dependency_overrides[get_orchestrator] = lambda: orchestrator
+    body = {
+        "model": "llama3.2",
+        "npc": {
+            "npcId": "merchant",
+            "personality": "wary but fair",
+            "socialTraits": {"helpfulness": "medium"},
+            "goals": ["protect trade routes"],
+            "capabilities": ["dialogue", "trade"],
+            "activePlanContext": "Executing goto_location; remaining_steps=2.",
+            "activeGoalsContext": "merchant goals: protect trade routes",
+        },
+        "turn": {"latestPlayerLine": "hello"},
+    }
+    with TestClient(app) as client:
+        data = client.post("/v1/dialogue/turn", json=body).json()
+    assert data["ok"] is True
+    assert len(adapter.last_messages) >= 1
+    system = adapter.last_messages[0].content
+    assert "PERSONALITY: wary but fair" in system
+    assert "SOCIAL_TRAITS: {'helpfulness': 'medium'}" in system
+    assert "GOALS: ['protect trade routes']" in system
+    assert "CAPABILITIES: ['dialogue', 'trade']" in system
+    assert "ACTIVE_PLAN_CONTEXT: Executing goto_location; remaining_steps=2." in system
+    assert "ACTIVE_GOALS_CONTEXT: merchant goals: protect trade routes" in system
 
 
 def test_unsupported_schema_version_rejected() -> None:

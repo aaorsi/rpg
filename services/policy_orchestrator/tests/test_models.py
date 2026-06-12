@@ -52,6 +52,42 @@ def test_request_accepts_camelcase_and_rejects_unknown_fields() -> None:
         DialogueTurnRequest.model_validate({**payload, "bogusField": 1})
 
 
+def test_request_persona_autonomy_context_defaults_and_aliases() -> None:
+    base = {
+        "model": "llama3.2",
+        "npc": {"npcId": "n1"},
+        "turn": {"latestPlayerLine": "hello"},
+    }
+    req = DialogueTurnRequest.model_validate(base)
+    assert req.npc.personality == ""
+    assert req.npc.social_traits == {}
+    assert req.npc.goals == []
+    assert req.npc.capabilities == []
+    assert req.npc.active_plan_context == ""
+    assert req.npc.active_goals_context == ""
+
+    with_context = {
+        "model": "llama3.2",
+        "npc": {
+            "npcId": "n1",
+            "personality": "calm",
+            "socialTraits": {"helpfulness": "high"},
+            "goals": ["protect village"],
+            "capabilities": ["dialogue", "trade"],
+            "activePlanContext": "Executing goto_location; remaining_steps=2.",
+            "activeGoalsContext": "n1 goals: protect village",
+        },
+        "turn": {"latestPlayerLine": "hello"},
+    }
+    req2 = DialogueTurnRequest.model_validate(with_context)
+    assert req2.npc.personality == "calm"
+    assert req2.npc.social_traits == {"helpfulness": "high"}
+    assert req2.npc.goals == ["protect village"]
+    assert req2.npc.capabilities == ["dialogue", "trade"]
+    assert req2.npc.active_plan_context.startswith("Executing goto_location")
+    assert req2.npc.active_goals_context.startswith("n1 goals")
+
+
 def test_deliberation_request_is_strict_inbound() -> None:
     payload = {
         "model": "llama3.2",
