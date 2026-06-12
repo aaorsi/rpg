@@ -18,6 +18,9 @@ from .models import (
     MessageDto,
     NarrativeGenerationRequest,
     NarrativeGenerationResponse,
+    NpcDeliberationRequest,
+    NpcDeliberationResponse,
+    NpcPlanStep,
     NpcPersonaGenerationRequest,
     NpcPersonaSeed,
     NpcPersonaGenerationResponse,
@@ -26,17 +29,45 @@ from .models import (
     SessionNarrativeCanon,
 )
 from .ollama_adapter import OllamaAdapter
-from .policies import PolicyRegistry
+from .policies import DeliberationPolicy, PolicyRegistry
 
 logger = logging.getLogger("policy_orchestrator")
 
 _DEFAULT_PROVIDER = "http://127.0.0.1:11434"
+_PRIMITIVE_SYNONYMS = {
+    "goto_location": "goto_location",
+    "go_to_location": "goto_location",
+    "move_to_location": "goto_location",
+    "goto_npc": "goto_npc",
+    "go_to_npc": "goto_npc",
+    "move_to_npc": "goto_npc",
+    "wait_at": "wait_at",
+    "wait": "wait_at",
+    "perform_work": "perform_work",
+    "do_work": "perform_work",
+    "work": "perform_work",
+    "chat_with_npc": "chat_with_npc",
+    "chat": "chat_with_npc",
+    "talk_to_npc": "chat_with_npc",
+    "idle_home": "idle_home",
+    "idle": "idle_home",
+}
 
 
 class PolicyOrchestrator:
     def __init__(self, adapter: OllamaAdapter) -> None:
         self._adapter = adapter
         self._registry = PolicyRegistry()
+        self._deliberation_policy = DeliberationPolicy(
+            allowed_primitives={
+                "goto_location",
+                "goto_npc",
+                "wait_at",
+                "perform_work",
+                "chat_with_npc",
+                "idle_home",
+            }
+        )
 
     async def run_dialogue_turn(self, request: DialogueTurnRequest) -> PolicyEnvelope:
         rid = request.request_id
@@ -160,6 +191,43 @@ class PolicyOrchestrator:
         except Exception as ex:
             return self._fail("npc_persona_generation_failed", rid, ex)
 
+    async def run_npc_deliberation(self, request: NpcDeliberationRequest) -> PolicyEnvelope:
+        rid = request.request_id
+        version_error = self._reject_unsupported_version(request.schema_version, rid)
+        if version_error is not None:
+            return version_error
+        try:
+            raw = await self._adapter.chat(
+                base_url=request.provider_base_url or _DEFAULT_PROVIDER,
+                model=request.model,
+                messages=self._build_deliberation_messages(request),
+                api_token=request.api_token,
+            )
+            try:
+                parsed = self._parse_deliberation_steps(raw, max_steps=request.max_steps)
+            except ValueError:
+                parsed = []
+            normalized = self._deliberation_policy.normalize_steps(
+                parsed,
+                self_npc_id=request.npc_id,
+                location_ids=set(request.targets.location_ids),
+                npc_ids=set(request.targets.npc_ids),
+                work_ids=set(request.targets.work_ids),
+            )
+            used_fallback = False
+            if not normalized:
+                normalized = self._fallback_plan_steps(request)
+                used_fallback = True
+            response = NpcDeliberationResponse(
+                request_id=rid,
+                steps=normalized,
+                used_fallback=used_fallback,
+                raw_assistant=raw,
+            )
+            return PolicyEnvelope(ok=True, deliberation=response)
+        except Exception as ex:
+            return self._fail("npc_deliberation_failed", rid, ex)
+
     # --- Helpers ------------------------------------------------------------
 
     def _to_dialogue_response(
@@ -261,6 +329,31 @@ class PolicyOrchestrator:
             MessageDto(role="user", content=user),
         ]
 
+    def _build_deliberation_messages(self, request: NpcDeliberationRequest) -> List[MessageDto]:
+        allowed = sorted(self._deliberation_policy.allowed_primitives)
+        system = (
+            "You produce compact NPC execution plans from goals. "
+            "Return ONLY JSON with key `steps` (array). "
+            "Each step must include keys: primitiveType, targetId, durationSeconds, notes. "
+            "Use only these primitiveType values exactly: "
+            f"{allowed}. "
+            "targetId must be empty for idle_home. "
+            "targetId for goto_location/wait_at must be from locationIds, "
+            "for goto_npc/chat_with_npc from npcIds, and for perform_work from workIds."
+        )
+        user = (
+            f"npcId={request.npc_id}\n"
+            f"goal={request.goal}\n"
+            f"maxSteps={request.max_steps}\n"
+            f"locationIds={json.dumps(request.targets.location_ids)}\n"
+            f"npcIds={json.dumps(request.targets.npc_ids)}\n"
+            f"workIds={json.dumps(request.targets.work_ids)}"
+        )
+        return [
+            MessageDto(role="system", content=system),
+            MessageDto(role="user", content=user),
+        ]
+
     def _parse_personas_with_fallback(self, raw: str, seeds: List[NpcPersonaSeed]) -> List[GeneratedNpcPersona]:
         seed_lookup = {seed.npc_id: seed for seed in seeds}
         by_npc_id: dict[str, GeneratedNpcPersona] = {}
@@ -335,6 +428,66 @@ class PolicyOrchestrator:
             capabilities=list(seed.capability_hints),
             follower_recruitment_requirements=list(seed.follower_recruitment_hints),
         )
+
+    def _parse_deliberation_steps(self, raw: str, *, max_steps: int) -> List[NpcPlanStep]:
+        obj = parse_json_object(raw)
+        candidates = obj.get("steps") or obj.get("planSteps") or obj.get("plan")
+        if isinstance(candidates, dict):
+            candidates = [candidates]
+        if not isinstance(candidates, list):
+            return []
+
+        steps: List[NpcPlanStep] = []
+        for candidate in candidates[:max_steps]:
+            if not isinstance(candidate, dict):
+                continue
+            primitive_raw = str(
+                candidate.get("primitiveType")
+                or candidate.get("primitive_type")
+                or candidate.get("type")
+                or candidate.get("action")
+                or ""
+            ).strip()
+            primitive = _PRIMITIVE_SYNONYMS.get(primitive_raw.lower())
+            if primitive is None:
+                continue
+            target = str(candidate.get("targetId") or candidate.get("target_id") or "").strip()
+            duration = candidate.get("durationSeconds")
+            if duration is None:
+                duration = candidate.get("duration_seconds")
+            try:
+                parsed_duration = max(0.0, float(duration)) if duration is not None else 0.0
+            except (TypeError, ValueError):
+                parsed_duration = 0.0
+            notes = str(candidate.get("notes") or "").strip()
+            steps.append(
+                NpcPlanStep(
+                    primitive_type=primitive,
+                    target_id=target,
+                    duration_seconds=parsed_duration,
+                    notes=notes,
+                )
+            )
+        return steps
+
+    def _fallback_plan_steps(self, request: NpcDeliberationRequest) -> List[NpcPlanStep]:
+        steps: List[NpcPlanStep] = []
+        if request.targets.work_ids:
+            steps.append(NpcPlanStep(primitive_type="perform_work", target_id=request.targets.work_ids[0]))
+            steps.append(NpcPlanStep(primitive_type="idle_home"))
+            return steps[: request.max_steps]
+        if request.targets.location_ids:
+            location = request.targets.location_ids[0]
+            steps.append(NpcPlanStep(primitive_type="goto_location", target_id=location))
+            steps.append(NpcPlanStep(primitive_type="wait_at", target_id=location, duration_seconds=2.0))
+            return steps[: request.max_steps]
+        npc_candidates = [npc_id for npc_id in request.targets.npc_ids if npc_id != request.npc_id]
+        if npc_candidates:
+            target = npc_candidates[0]
+            steps.append(NpcPlanStep(primitive_type="goto_npc", target_id=target))
+            steps.append(NpcPlanStep(primitive_type="chat_with_npc", target_id=target, duration_seconds=2.0))
+            return steps[: request.max_steps]
+        return [NpcPlanStep(primitive_type="idle_home")]
 
 
 def _list_of_strings(value: object) -> List[str]:

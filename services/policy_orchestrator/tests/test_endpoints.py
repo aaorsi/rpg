@@ -169,3 +169,48 @@ def test_npc_persona_generate_malformed_output_falls_back_to_defaults() -> None:
     assert personas[0]["keyInformation"] == ["Owns the northern wheat fields"]
     assert personas[1]["occupation"] == "Villager"
     assert personas[1]["followerRecruitmentRequirements"] == ["Complete the beacon route"]
+
+
+def test_npc_deliberate_success_with_vocab_normalization_and_target_filtering() -> None:
+    reply = (
+        '{"planSteps":[{"primitiveType":"move_to_location","targetId":"smithy","durationSeconds":0.5},'
+        '{"primitiveType":"goto_npc","targetId":"blacksmith"},'
+        '{"primitiveType":"chat_with_npc","targetId":"unknown_npc"},'
+        '{"primitiveType":"idle_home","targetId":"not_allowed"}]}'
+    )
+    body = {
+        "model": "llama3.2",
+        "npcId": "villager_1",
+        "goal": "check in with blacksmith then wrap up",
+        "targets": {
+            "locationIds": ["smithy", "market"],
+            "npcIds": ["blacksmith"],
+            "workIds": ["farming"],
+        },
+    }
+    with _client(reply) as client:
+        data = client.post("/v1/npc/deliberate", json=body).json()
+    assert data["ok"] is True
+    deliberation = data["deliberation"]
+    assert deliberation["usedFallback"] is False
+    assert [step["primitiveType"] for step in deliberation["steps"]] == ["goto_location", "goto_npc"]
+
+
+def test_npc_deliberate_invalid_output_uses_deterministic_fallback() -> None:
+    body = {
+        "model": "llama3.2",
+        "npcId": "worker_1",
+        "goal": "do my shift",
+        "targets": {
+            "locationIds": ["plaza"],
+            "npcIds": ["merchant_1"],
+            "workIds": ["mill"],
+        },
+    }
+    with _client("<<no json>>") as client:
+        data = client.post("/v1/npc/deliberate", json=body).json()
+    assert data["ok"] is True
+    deliberation = data["deliberation"]
+    assert deliberation["usedFallback"] is True
+    assert [step["primitiveType"] for step in deliberation["steps"]] == ["perform_work", "idle_home"]
+    assert deliberation["steps"][0]["targetId"] == "mill"

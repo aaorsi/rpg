@@ -4,6 +4,8 @@ from pydantic import ValidationError
 from app.models import (
     DialogueTurnRequest,
     DialogueTurnResponse,
+    NpcDeliberationRequest,
+    NpcDeliberationResponse,
     PolicyEnvelope,
     PolicyError,
 )
@@ -48,3 +50,28 @@ def test_request_accepts_camelcase_and_rejects_unknown_fields() -> None:
 
     with pytest.raises(ValidationError):
         DialogueTurnRequest.model_validate({**payload, "bogusField": 1})
+
+
+def test_deliberation_request_is_strict_inbound() -> None:
+    payload = {
+        "model": "llama3.2",
+        "npcId": "npc_1",
+        "goal": "do something useful",
+        "targets": {"locationIds": ["square"]},
+    }
+    req = NpcDeliberationRequest.model_validate(payload)
+    assert req.targets.location_ids == ["square"]
+    with pytest.raises(ValidationError):
+        NpcDeliberationRequest.model_validate({**payload, "unexpected": True})
+
+
+def test_deliberation_response_can_fill_envelope_payload() -> None:
+    env = PolicyEnvelope(
+        ok=True,
+        deliberation=NpcDeliberationResponse(
+            request_id="r1",
+            steps=[],
+            used_fallback=True,
+        ),
+    )
+    assert env.deliberation is not None
