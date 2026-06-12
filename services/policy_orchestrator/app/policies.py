@@ -3,13 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, List, Set
 
-from .models import DialogueTurnResponse, NpcType, ProposedAction
+from .models import DialogueTurnResponse, NpcPlanStep, NpcType, ProposedAction, SocialOutcome
 
 
 @dataclass(frozen=True)
 class NpcPolicy:
     npc_type: NpcType
     allowed_actions: Set[str]
+    allowed_social_outcome_types: Set[str]
     forbid_state_deltas: bool = False
     force_all_caps: bool = False
     forced_interaction_outcome: str = ""
@@ -17,6 +18,7 @@ class NpcPolicy:
     def normalize(self, response: DialogueTurnResponse) -> DialogueTurnResponse:
         normalized = response.model_copy(deep=True)
         normalized.proposed_actions = self._filter_actions(normalized.proposed_actions)
+        normalized.social_outcomes = self._filter_social_outcomes(normalized.social_outcomes)
         if self.forbid_state_deltas:
             normalized.state_deltas = {}
             normalized.milestone_signals = []
@@ -32,6 +34,14 @@ class NpcPolicy:
             key = (action.action_type or "").strip().lower()
             if key in self.allowed_actions:
                 out.append(action)
+        return out
+
+    def _filter_social_outcomes(self, outcomes: List[SocialOutcome]) -> List[SocialOutcome]:
+        out: List[SocialOutcome] = []
+        for outcome in outcomes:
+            key = (outcome.outcome_type or "").strip().lower()
+            if key in self.allowed_social_outcome_types:
+                out.append(outcome)
         return out
 
 
@@ -54,6 +64,13 @@ class PolicyRegistry:
                     "inspect_location",
                     "refer_to_npc",
                 },
+                allowed_social_outcome_types={
+                    "offer_task",
+                    "accept_task",
+                    "advice_given",
+                    "persuasion",
+                    "payment",
+                },
             ),
             NpcType.SIDEKICK: NpcPolicy(
                 npc_type=NpcType.SIDEKICK,
@@ -65,10 +82,17 @@ class PolicyRegistry:
                     "find_object",
                     "activate_object",
                 },
+                allowed_social_outcome_types={
+                    "offer_task",
+                    "accept_task",
+                    "advice_given",
+                    "persuasion",
+                },
             ),
             NpcType.GHOUL: NpcPolicy(
                 npc_type=NpcType.GHOUL,
                 allowed_actions=set(),
+                allowed_social_outcome_types=set(),
                 forbid_state_deltas=True,
                 force_all_caps=True,
                 forced_interaction_outcome="menace_flavor",
@@ -77,3 +101,66 @@ class PolicyRegistry:
 
     def for_type(self, npc_type: NpcType) -> NpcPolicy:
         return self._by_type.get(npc_type, self._by_type[NpcType.NORMAL])
+
+
+@dataclass(frozen=True)
+class DeliberationPolicy:
+    allowed_primitives: Set[str]
+
+    def normalize_steps(
+        self,
+        steps: List[NpcPlanStep],
+        *,
+        self_npc_id: str,
+        location_ids: Set[str],
+        npc_ids: Set[str],
+        work_ids: Set[str],
+    ) -> List[NpcPlanStep]:
+        out: List[NpcPlanStep] = []
+        for step in steps:
+            primitive = (step.primitive_type or "").strip().lower()
+            target = (step.target_id or "").strip()
+            if primitive not in self.allowed_primitives:
+                continue
+            if not self._target_is_valid(
+                primitive=primitive,
+                target=target,
+                self_npc_id=self_npc_id,
+                location_ids=location_ids,
+                npc_ids=npc_ids,
+                work_ids=work_ids,
+            ):
+                continue
+            out.append(
+                NpcPlanStep(
+                    primitive_type=primitive,
+                    target_id=target,
+                    duration_seconds=max(0.0, float(step.duration_seconds)),
+                    notes=step.notes,
+                )
+            )
+        return out
+
+    @staticmethod
+    def _target_is_valid(
+        *,
+        primitive: str,
+        target: str,
+        self_npc_id: str,
+        location_ids: Set[str],
+        npc_ids: Set[str],
+        work_ids: Set[str],
+    ) -> bool:
+        if primitive == "goto_location":
+            return target in location_ids
+        if primitive == "wait_at":
+            return not target or target in location_ids
+        if primitive == "goto_npc":
+            return target in npc_ids and target != self_npc_id
+        if primitive == "chat_with_npc":
+            return target in npc_ids and target != self_npc_id
+        if primitive == "perform_work":
+            return target in work_ids
+        if primitive == "idle_home":
+            return not target
+        return False

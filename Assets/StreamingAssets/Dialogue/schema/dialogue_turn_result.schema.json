@@ -25,6 +25,61 @@
       },
       "title": "ProposedAction",
       "type": "object"
+    },
+    "SocialOutcome": {
+      "properties": {
+        "adviceTopic": {
+          "default": "",
+          "title": "Advicetopic",
+          "type": "string"
+        },
+        "amount": {
+          "default": 0.0,
+          "title": "Amount",
+          "type": "number"
+        },
+        "currency": {
+          "default": "",
+          "title": "Currency",
+          "type": "string"
+        },
+        "notes": {
+          "default": "",
+          "title": "Notes",
+          "type": "string"
+        },
+        "outcomeType": {
+          "enum": [
+            "offer_task",
+            "accept_task",
+            "advice_given",
+            "persuasion",
+            "payment"
+          ],
+          "title": "Outcometype",
+          "type": "string"
+        },
+        "persuasion": {
+          "default": "",
+          "title": "Persuasion",
+          "type": "string"
+        },
+        "targetNpcId": {
+          "default": "",
+          "title": "Targetnpcid",
+          "type": "string"
+        },
+        "taskId": {
+          "default": "",
+          "title": "Taskid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "outcomeType"
+      ],
+      "title": "SocialOutcome",
+      "type": "object"
     }
   },
   "description": "Canonical shape the dialogue model must emit (dialogue_turn_result.schema.json).",
@@ -75,6 +130,13 @@
     "say": {
       "title": "Say",
       "type": "string"
+    },
+    "socialOutcomes": {
+      "items": {
+        "$ref": "#/$defs/SocialOutcome"
+      },
+      "title": "Socialoutcomes",
+      "type": "array"
     },
     "stateDeltas": {
       "additionalProperties": {

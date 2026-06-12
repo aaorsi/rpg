@@ -165,6 +165,7 @@ namespace Rpg.Npc
 
         public float CurrentPlanarSpeed { get; private set; }
         public string CurrentPrimitiveType { get; private set; } = string.Empty;
+        public string CurrentTargetNpcId { get; private set; } = string.Empty;
         public NpcAgentStepCompletionState LastStepCompletionState { get; private set; }
         public int SuccessfulStepCount { get; private set; }
         public int FailedStepCount { get; private set; }
@@ -239,6 +240,7 @@ namespace Rpg.Npc
             _queue.Clear();
             _activeStep = null;
             CurrentPrimitiveType = string.Empty;
+            CurrentTargetNpcId = string.Empty;
             LastStepCompletionState = NpcAgentStepCompletionState.None;
 
             if (steps == null)
@@ -260,6 +262,7 @@ namespace Rpg.Npc
             _queue.Clear();
             _activeStep = null;
             CurrentPrimitiveType = string.Empty;
+            CurrentTargetNpcId = string.Empty;
             ReleaseLocomotionOwnershipIfNeeded();
         }
 
@@ -321,6 +324,7 @@ namespace Rpg.Npc
             _stepAnchorReached = false;
             _activeNpcTarget = null;
             CurrentPrimitiveType = _activeStep.PrimitiveType ?? string.Empty;
+            CurrentTargetNpcId = _activeStep.TargetNpcId ?? string.Empty;
             _activeMoveTarget = SnapToGround(_activeStep.WorldLocation, transform.position.y);
             return true;
         }
@@ -411,6 +415,7 @@ namespace Rpg.Npc
             _activeNpcTarget = null;
             _stepAnchorReached = false;
             CurrentPrimitiveType = string.Empty;
+            CurrentTargetNpcId = string.Empty;
         }
 
         bool TryResolveNpcTarget(string npcId, out Transform target)

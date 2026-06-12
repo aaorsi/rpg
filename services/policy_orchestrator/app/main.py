@@ -10,6 +10,7 @@ from .models import (
     ConversationSummaryRequest,
     DialogueTurnRequest,
     NarrativeGenerationRequest,
+    NpcDeliberationRequest,
     NpcPersonaGenerationRequest,
     PolicyEnvelope,
 )
@@ -72,3 +73,11 @@ async def npc_persona_generate(
     orchestrator: PolicyOrchestrator = Depends(get_orchestrator),
 ) -> PolicyEnvelope:
     return await orchestrator.run_npc_persona_generation(request)
+
+
+@app.post("/v1/npc/deliberate", response_model=PolicyEnvelope)
+async def npc_deliberate(
+    request: NpcDeliberationRequest,
+    orchestrator: PolicyOrchestrator = Depends(get_orchestrator),
+) -> PolicyEnvelope:
+    return await orchestrator.run_npc_deliberation(request)

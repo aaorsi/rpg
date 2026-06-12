@@ -44,6 +44,13 @@ InteractionOutcome = Literal[
     "menace_flavor",
     "unspecified",
 ]
+SocialOutcomeType = Literal[
+    "offer_task",
+    "accept_task",
+    "advice_given",
+    "persuasion",
+    "payment",
+]
 StateDeltaValue = Literal["down", "steady", "up"]
 RelationshipShift = Literal["negative", "neutral", "positive"]
 
@@ -73,6 +80,8 @@ class NpcContext(StrictCamelModel):
     social_traits: Dict[str, str] = Field(default_factory=dict)
     goals: List[str] = Field(default_factory=list)
     capabilities: List[str] = Field(default_factory=list)
+    active_plan_context: str = ""
+    active_goals_context: str = ""
 
 
 class TurnContext(StrictCamelModel):
@@ -139,6 +148,24 @@ class NpcPersonaGenerationRequest(StrictCamelModel):
     provider_base_url: Optional[str] = None
 
 
+class DeliberationTargets(StrictCamelModel):
+    location_ids: List[str] = Field(default_factory=list)
+    npc_ids: List[str] = Field(default_factory=list)
+    work_ids: List[str] = Field(default_factory=list)
+
+
+class NpcDeliberationRequest(StrictCamelModel):
+    schema_version: int = SCHEMA_VERSION
+    request_id: str = ""
+    model: str
+    npc_id: str
+    goal: str
+    max_steps: int = Field(default=4, ge=1, le=12)
+    targets: DeliberationTargets = Field(default_factory=DeliberationTargets)
+    api_token: Optional[str] = None
+    provider_base_url: Optional[str] = None
+
+
 # --- LLM-output single source of truth --------------------------------------
 # These mirror Assets/StreamingAssets/Dialogue/schema/*.schema.json, which are
 # generated from these models via scripts/generate_schemas.py.
@@ -151,6 +178,17 @@ class ProposedAction(CamelModel):
     notes: str = ""
 
 
+class SocialOutcome(CamelModel):
+    outcome_type: SocialOutcomeType
+    task_id: str = ""
+    target_npc_id: str = ""
+    amount: float = 0.0
+    currency: str = ""
+    persuasion: str = ""
+    advice_topic: str = ""
+    notes: str = ""
+
+
 class LlmDialogueOutput(CamelModel):
     """Canonical shape the dialogue model must emit (dialogue_turn_result.schema.json)."""
 
@@ -158,6 +196,7 @@ class LlmDialogueOutput(CamelModel):
     ack_year: bool = False
     interaction_outcome: InteractionOutcome = "unspecified"
     proposed_npc_actions: List[ProposedAction] = Field(default_factory=list)
+    social_outcomes: List[SocialOutcome] = Field(default_factory=list)
     state_deltas: Dict[str, StateDeltaValue] = Field(default_factory=dict)
     milestone_signals: List[str] = Field(default_factory=list)
     memories_to_add: List[Dict[str, str]] = Field(default_factory=list)
@@ -191,6 +230,23 @@ class SessionNarrativeCanon(CamelModel):
     trade_requirements: List[TradeRequirement] = Field(default_factory=list)
 
 
+PrimitiveType = Literal[
+    "goto_location",
+    "goto_npc",
+    "wait_at",
+    "perform_work",
+    "chat_with_npc",
+    "idle_home",
+]
+
+
+class NpcPlanStep(CamelModel):
+    primitive_type: PrimitiveType
+    target_id: str = ""
+    duration_seconds: float = Field(default=0.0, ge=0.0)
+    notes: str = ""
+
+
 # --- Response payloads ------------------------------------------------------
 
 
@@ -201,6 +257,7 @@ class DialogueTurnResponse(CamelModel):
     ack_year: bool = False
     interaction_outcome: InteractionOutcome = "unspecified"
     proposed_actions: List[ProposedAction] = Field(default_factory=list)
+    social_outcomes: List[SocialOutcome] = Field(default_factory=list)
     milestone_signals: List[str] = Field(default_factory=list)
     state_deltas: Dict[str, str] = Field(default_factory=dict)
     memories_to_add: List[Dict[str, str]] = Field(default_factory=list)
@@ -244,6 +301,14 @@ class NpcPersonaGenerationResponse(CamelModel):
     raw_assistant: str = ""
 
 
+class NpcDeliberationResponse(CamelModel):
+    schema_version: int = SCHEMA_VERSION
+    request_id: str = ""
+    steps: List[NpcPlanStep] = Field(default_factory=list)
+    used_fallback: bool = False
+    raw_assistant: str = ""
+
+
 class PolicyError(CamelModel):
     code: str
     message: str
@@ -256,10 +321,11 @@ class PolicyEnvelope(CamelModel):
     summary: Optional[ConversationSummaryResponse] = None
     narrative: Optional[NarrativeGenerationResponse] = None
     persona: Optional[NpcPersonaGenerationResponse] = None
+    deliberation: Optional[NpcDeliberationResponse] = None
 
     @model_validator(mode="after")
     def _check_payload(self) -> "PolicyEnvelope":
-        payloads = [self.dialogue, self.summary, self.narrative, self.persona]
+        payloads = [self.dialogue, self.summary, self.narrative, self.persona, self.deliberation]
         if self.ok and not any(payloads):
             raise ValueError("Successful envelope must include a payload.")
         if not self.ok and self.error is None:

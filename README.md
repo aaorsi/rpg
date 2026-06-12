@@ -108,6 +108,35 @@ Title screen (Ollama local/cloud selection), dialogue panel, intro overlay, heal
 
 ---
 
+## Villager autonomy loop (Wave 3)
+
+`VillageAgentSimulation` runs an autonomy control loop for `villager_*` NPCs and uses the Python sidecar for plan deliberation.
+
+1. **Registry refresh** (`villagerRefreshSeconds`, default `4s`, floor `0.25s`) keeps the villager set, scheduler participants, and opinion records in sync.
+2. **Opinion pass** queues gossip edges when an NPC is currently executing `chat_with_npc`, then processes up to `maxGossipInteractionsPerTick` interactions per frame (`2` by default).
+3. **Budget gate** allows at most one in-flight deliberation task and only when `VillageDeliberationScheduler` cadence allows (`deliberationCadenceSeconds`, default `2s`, floor `0.05s`).
+4. **Deliberation request** (`PythonNpcDeliberationRequestDto`) sends NPC persona context, world snapshot, current goals/plan, and agreement/opinion context lines to `POST /v1/npc/deliberate`.
+5. **Apply result** stores telemetry on each villager runtime state (`LastDeliberationReason`, `LastDeliberationSource`, `LastError`) and updates the controller plan/goals when steps are returned.
+
+Data flow for each deliberation tick:
+
+`VillageAgentSimulation` -> `VillageDeliberationScheduler` -> `PythonPolicyClient.NpcDeliberationAsync` -> `FastAPI /v1/npc/deliberate` -> `PolicyOrchestrator` -> `DeliberationPolicy` normalize -> Unity `NpcAgentController.SetPlan(...)`
+
+---
+
+## Operational limits and fallback behavior
+
+- **LLM budget cadence:** the scheduler enforces one deliberation release per cadence window (default `2s`) and `VillageAgentSimulation` refuses to start a new deliberation while one is in flight.
+- **Plan-size cap:** Unity clamps accepted plans to `maxPlanStepsPerDeliberation` (default `5`) before applying to runtime state/controllers.
+- **Gossip CPU budget:** opinion propagation is bounded by `maxGossipInteractionsPerTick` and queue capacity (`256` unique pairs) to prevent unbounded per-frame work.
+- **Sidecar disabled/error fallback:** if sidecar deliberation is disabled, returns an error, or returns an empty plan, Unity keeps/rehydrates existing goals + plan and marks source as `fallback`.
+- **Orchestrator fallback steps:** if `/v1/npc/deliberate` parsing/normalization yields no valid steps, the orchestrator emits deterministic fallback steps with `usedFallback=true` in this order: `workIds` -> `locationIds` -> `npcIds` (excluding self) -> `idle_home`.
+- **Contract safety:** inbound request models use `StrictCamelModel` (`extra="forbid"`), so unknown fields fail fast with `422` rather than being silently ignored.
+
+Known risk: if the sidecar repeatedly fails, villagers keep their last known plan; this is stable but can make behavior stale until sidecar health recovers.
+
+---
+
 ## Quick start
 
 ### Prerequisites

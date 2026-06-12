@@ -10,6 +10,7 @@ namespace Rpg.Dialogue
         public readonly List<NpcMemoryCandidate> MemoryAdds = new List<NpcMemoryCandidate>();
         public string InteractionOutcome;
         public readonly List<NpcProposedAction> ProposedActions = new List<NpcProposedAction>();
+        public readonly List<NpcSocialOutcome> SocialOutcomes = new List<NpcSocialOutcome>();
         public readonly Dictionary<string, string> StateDeltas = new Dictionary<string, string>();
         public readonly List<string> MilestoneSignals = new List<string>();
     }
@@ -34,6 +35,18 @@ namespace Rpg.Dialogue
         public string ActionType;
         public string TargetId;
         public float Quantity;
+        public string Notes;
+    }
+
+    public sealed class NpcSocialOutcome
+    {
+        public string OutcomeType;
+        public string TaskId;
+        public string TargetNpcId;
+        public float Amount;
+        public string Currency;
+        public string Persuasion;
+        public string AdviceTopic;
         public string Notes;
     }
 }

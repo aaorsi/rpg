@@ -30,9 +30,27 @@ namespace Rpg.Dialogue
             string sessionBreakInset = null,
             NarrativeSessionCanon narrativeCanon = null,
             NpcConversationSummary npcSummary = null,
-            string inventoryBlock = null)
+            string inventoryBlock = null,
+            string personality = null,
+            Dictionary<string, string> socialTraits = null,
+            List<string> goals = null,
+            List<string> capabilities = null,
+            string activePlanContext = null,
+            string activeGoalsContext = null)
         {
-            var system = BuildSystemPrompt(npc, world, sessionBreakInset, narrativeCanon, npcSummary, inventoryBlock);
+            var system = BuildSystemPrompt(
+                npc,
+                world,
+                sessionBreakInset,
+                narrativeCanon,
+                npcSummary,
+                inventoryBlock,
+                personality,
+                socialTraits,
+                goals,
+                capabilities,
+                activePlanContext,
+                activeGoalsContext);
             var messages = new List<OllamaMessageDto>
             {
                 new OllamaMessageDto("system", system)
@@ -51,7 +69,13 @@ namespace Rpg.Dialogue
             string sessionBreakInset = null,
             NarrativeSessionCanon narrativeCanon = null,
             NpcConversationSummary npcSummary = null,
-            string inventoryBlock = null)
+            string inventoryBlock = null,
+            string personality = null,
+            Dictionary<string, string> socialTraits = null,
+            List<string> goals = null,
+            List<string> capabilities = null,
+            string activePlanContext = null,
+            string activeGoalsContext = null)
         {
             var template = LoadTemplate("npc_system_template.txt");
             var facts = world.ToFactsBlock();
@@ -78,6 +102,12 @@ namespace Rpg.Dialogue
             persona.AppendLine(npc.toneAndVocabulary);
             persona.AppendLine("RULES:");
             persona.AppendLine(npc.safetyRules);
+            persona.AppendLine($"PERSONALITY: {SafeInline(personality)}");
+            persona.AppendLine($"SOCIAL_TRAITS: {FormatSocialTraits(socialTraits)}");
+            persona.AppendLine($"GOALS: {FormatList(goals)}");
+            persona.AppendLine($"CAPABILITIES: {FormatList(capabilities)}");
+            persona.AppendLine($"ACTIVE_PLAN_CONTEXT: {SafeInline(activePlanContext)}");
+            persona.AppendLine($"ACTIVE_GOALS_CONTEXT: {SafeInline(activeGoalsContext)}");
 
             var surroundings = NpcSurroundingsScanner.BuildPromptBlock(npc.npcId);
             return template
@@ -110,6 +140,38 @@ namespace Rpg.Dialogue
                 "- When speaking, prefer one clear next-step tied to a visible milestone or NPC goal.\n" +
                 "- At some point in natural conversation, all NPCs should mention that magic is contained in books and that some locations feel more magical than others.\n" +
                 "- If NPC_TYPE is sidekick, also mention that sidekicks know magic and groups of 3 or more magicians together can cast the most powerful spell.\n";
+        }
+
+        static string SafeInline(string value) => string.IsNullOrWhiteSpace(value) ? "(none)" : value.Trim();
+
+        static string FormatList(IReadOnlyList<string> values)
+        {
+            if (values == null || values.Count == 0)
+                return "(none)";
+            var parts = new List<string>();
+            foreach (var value in values)
+            {
+                if (!string.IsNullOrWhiteSpace(value))
+                    parts.Add(value.Trim());
+            }
+
+            return parts.Count == 0 ? "(none)" : string.Join(" | ", parts);
+        }
+
+        static string FormatSocialTraits(IReadOnlyDictionary<string, string> traits)
+        {
+            if (traits == null || traits.Count == 0)
+                return "(none)";
+            var parts = new List<string>();
+            foreach (var kv in traits)
+            {
+                var key = string.IsNullOrWhiteSpace(kv.Key) ? null : kv.Key.Trim();
+                var value = string.IsNullOrWhiteSpace(kv.Value) ? null : kv.Value.Trim();
+                if (!string.IsNullOrWhiteSpace(key) && !string.IsNullOrWhiteSpace(value))
+                    parts.Add($"{key}:{value}");
+            }
+
+            return parts.Count == 0 ? "(none)" : string.Join(", ", parts);
         }
 
         static bool IsSidekickNpc(string npcId) => SidekickCompanion.BindingRootHasSidekick(npcId);

@@ -62,6 +62,24 @@ def test_unknown_interaction_outcome_falls_back_to_unspecified() -> None:
     assert out.interaction_outcome == "unspecified"
 
 
+def test_social_outcomes_parse_supported_types_and_filter_invalid_entries() -> None:
+    raw = (
+        '{"say":"ok","socialOutcomes":['
+        '{"outcomeType":"offer_task","taskId":"task_1"},'
+        '{"outcomeType":"payment","amount":"7","currency":"gold"},'
+        '{"outcomeType":"unknown_type","notes":"skip me"},'
+        '{"notes":"missing type should be ignored"}'
+        "]} "
+    )
+    out = _validate(raw)
+    assert len(out.social_outcomes) == 2
+    assert out.social_outcomes[0].outcome_type == "offer_task"
+    assert out.social_outcomes[0].task_id == "task_1"
+    assert out.social_outcomes[1].outcome_type == "payment"
+    assert out.social_outcomes[1].amount == 7
+    assert out.social_outcomes[1].currency == "gold"
+
+
 def test_memories_use_canonical_keys_and_defaults() -> None:
     raw = '{"say": "ok", "memoriesToAdd": [{"text": "player likes apples"}]}'
     out = _validate(raw)

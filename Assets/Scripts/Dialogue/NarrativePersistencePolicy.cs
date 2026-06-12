@@ -8,6 +8,7 @@ namespace Rpg.Dialogue
         public bool clearCanonOnPlay = true;
         public bool clearInventoryOnPlay = true;
         public bool clearQuestStateOnPlay = true;
+        public bool clearAgreementsOnPlay = true;
         public bool clearNpcMemoryOnPlay = true;
         public bool clearNpcTranscriptsOnPlay = true;
         public bool clearNpcSummariesOnPlay;
