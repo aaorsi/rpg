@@ -47,6 +47,7 @@ namespace Rpg.Dialogue
         ConversationSummaryService _summaryService;
         NpcActionExecutor _actionExecutor;
         InventoryService _inventory;
+        AgreementService _agreements;
         QuestStateService _questState;
         FailForwardService _failForward;
         LocationBindingRegistry _locations;
@@ -93,6 +94,8 @@ namespace Rpg.Dialogue
                     InventoryService.ClearAllForNewPlaySession();
                 if (_persistencePolicy == null || _persistencePolicy.clearQuestStateOnPlay)
                     QuestStateService.ClearAllForNewPlaySession();
+                if (_persistencePolicy == null || _persistencePolicy.clearAgreementsOnPlay)
+                    AgreementService.ClearAllForNewPlaySession();
                 if (_persistencePolicy == null || _persistencePolicy.clearCanonOnPlay)
                     NarrativeSessionStore.ClearAllForNewPlaySession();
                 if (_persistencePolicy != null && _persistencePolicy.clearNpcSummariesOnPlay)
@@ -194,6 +197,7 @@ namespace Rpg.Dialogue
             _contentLibrary = new NarrativeContentLibrary();
             _inventory = new InventoryService(_contentLibrary);
             _inventory.EnsureActor(InventoryService.HeroActorId);
+            _agreements = new AgreementService();
             _questState = new QuestStateService();
             _failForward = new FailForwardService();
             _locations = new LocationBindingRegistry(_contentLibrary.LoadLocationCatalog());
@@ -667,6 +671,12 @@ namespace Rpg.Dialogue
                 if (result.Payload != null && _activeNpc != null)
                 {
                     _questState?.ApplySignals(_activeNpc.npcId, result.Payload.MilestoneSignals);
+                    AgreementOutcomeAdapter.ApplyFromDialoguePayload(
+                        _agreements,
+                        _inventory,
+                        _activeNpc.npcId,
+                        result.Payload,
+                        InventoryService.HeroActorId);
                     _lastCommittedInteractionOutcome = NormalizeInteractionOutcome(result.Payload.InteractionOutcome);
                     _lastPayloadSummary = $"outcome={result.Payload.InteractionOutcome}, actions={result.Payload.ProposedActions?.Count ?? 0}, signals={result.Payload.MilestoneSignals?.Count ?? 0}";
                 }
@@ -1727,6 +1737,9 @@ namespace Rpg.Dialogue
 
         /// <summary>Hero/NPC item store; null until <see cref="ConfigureRuntime"/>.</summary>
         public InventoryService Inventory => _inventory;
+
+        /// <summary>Social agreement lifecycle store; null until <see cref="ConfigureRuntime"/>.</summary>
+        public AgreementService Agreements => _agreements;
 
         public string ChickenTheftIncidentVictimNpcId => _chickenTheftScenario.IncidentVictimNpcId;
 
