@@ -15,6 +15,7 @@ namespace Rpg.Npc
         [SerializeField] bool enableSidecarDeliberation = true;
         [SerializeField] float deliberationCadenceSeconds = 2f;
         [SerializeField] float villagerRefreshSeconds = 4f;
+        [SerializeField] int maxGossipInteractionsPerTick = 2;
         [SerializeField] int maxPlanStepsPerDeliberation = 5;
         [SerializeField] bool logDeliberationTelemetry = true;
 
@@ -22,6 +23,7 @@ namespace Rpg.Npc
         OllamaSettings _settings;
         IVillageDeliberationTransport _transport;
         VillageDeliberationScheduler _scheduler;
+        VillageOpinionService _opinionService;
         readonly Dictionary<string, VillagerRuntimeState> _stateByNpcId =
             new Dictionary<string, VillagerRuntimeState>(StringComparer.OrdinalIgnoreCase);
         readonly List<string> _participantCache = new List<string>();
@@ -34,6 +36,7 @@ namespace Rpg.Npc
         bool _initialized;
 
         public IReadOnlyDictionary<string, VillagerRuntimeState> States => _stateByNpcId;
+        public VillageOpinionService OpinionService => _opinionService;
 
         void Awake()
         {
@@ -82,6 +85,8 @@ namespace Rpg.Npc
                 return;
 
             RefreshVillagerRegistry(nowTime);
+            QueueInteractionGossip();
+            _opinionService.ProcessGossip(maxGossipInteractionsPerTick);
             TryFinalizeInFlightResult();
             if (_inFlight != null)
                 return;
@@ -102,6 +107,8 @@ namespace Rpg.Npc
                 return;
 
             _scheduler = new VillageDeliberationScheduler(deliberationCadenceSeconds);
+            if (_opinionService == null)
+                _opinionService = new VillageOpinionService();
             if (_transport == null)
                 _transport = new SidecarVillageDeliberationTransport(_settings);
             _nextVillagerRefreshAt = -1f;
@@ -144,6 +151,26 @@ namespace Rpg.Npc
 
             _scheduler.CadenceSeconds = deliberationCadenceSeconds;
             _scheduler.SetParticipants(_participantCache);
+            _opinionService.SetParticipants(_participantCache);
+        }
+
+        void QueueInteractionGossip()
+        {
+            if (_opinionService == null || _stateByNpcId.Count == 0)
+                return;
+
+            foreach (var kvp in _stateByNpcId)
+            {
+                var state = kvp.Value;
+                if (state == null || state.Controller == null)
+                    continue;
+                if (!string.Equals(state.Controller.CurrentPrimitiveType, NpcPrimitiveTypes.ChatWithNpc, StringComparison.Ordinal))
+                    continue;
+                if (string.IsNullOrWhiteSpace(state.Controller.CurrentTargetNpcId))
+                    continue;
+
+                _opinionService.QueueInteraction(state.NpcId, state.Controller.CurrentTargetNpcId);
+            }
         }
 
         void TryFinalizeInFlightResult()
@@ -240,7 +267,9 @@ namespace Rpg.Npc
                 },
                 currentGoals = state.ActiveGoals != null ? new List<string>(state.ActiveGoals) : new List<string>(),
                 currentPlan = ConvertPlanToDto(state.ActivePlan),
-                agreements = new List<string>()
+                agreements = _opinionService != null
+                    ? _opinionService.BuildDeliberationContext(npcId)
+                    : new List<string>()
             };
             return request;
         }

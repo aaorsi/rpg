@@ -67,6 +67,27 @@ namespace Rpg.Npc.Tests.EditMode
             Assert.GreaterOrEqual(state.ActivePlan.Count, 1);
         }
 
+        [Test]
+        public void TickSimulation_AddsVillageOpinionSummaryToDeliberationContext()
+        {
+            CreateVillagerRoot("villager_003");
+            var simulationGo = new GameObject("village_simulation_context");
+            _created.Add(simulationGo);
+            var transport = new CapturingTransport();
+            var simulation = simulationGo.AddComponent<VillageAgentSimulation>();
+            simulation.ConfigureForTests(transport);
+            simulation.OpinionService.ApplyHeroImpact("villager_003", 12f, 9f, -3f, 2f, 5f);
+
+            simulation.TickSimulation(0f);
+            simulation.TickSimulation(0.1f);
+
+            Assert.IsNotNull(transport.LastRequest);
+            Assert.IsNotNull(transport.LastRequest.agreements);
+            Assert.GreaterOrEqual(transport.LastRequest.agreements.Count, 2);
+            StringAssert.Contains("Village standing tracks", transport.LastRequest.agreements[0]);
+            StringAssert.Contains("Local opinion", transport.LastRequest.agreements[1]);
+        }
+
         GameObject CreateVillagerRoot(string npcId)
         {
             var go = new GameObject(npcId);
@@ -125,6 +146,19 @@ namespace Rpg.Npc.Tests.EditMode
                     }
                 };
                 return Task.FromResult(envelope);
+            }
+        }
+
+        sealed class CapturingTransport : VillageAgentSimulation.IVillageDeliberationTransport
+        {
+            public PythonNpcDeliberationRequestDto LastRequest { get; private set; }
+
+            public Task<VillageAgentSimulation.VillagerDeliberationEnvelope> DeliberateAsync(
+                PythonNpcDeliberationRequestDto request,
+                CancellationToken token)
+            {
+                LastRequest = request;
+                return Task.FromResult(VillageAgentSimulation.VillagerDeliberationEnvelope.Failure("captured", true));
             }
         }
     }
