@@ -105,5 +105,7 @@ services/**/.venv/
 !/Assets/Scenes/Room_Prototype.unity.meta
 !/Assets/Scenes/App.prefab
 !/Assets/Scenes/App.prefab.meta
+!/Assets/sc2.unity
+!/Assets/sc2.unity.meta
 !/Assets/ScriptableObjects/
 !/Assets/ScriptableObjects/**

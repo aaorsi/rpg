@@ -1,119 +1,250 @@
-# Developer setup (Unity + Ollama slice)
+# Developer setup (Unity + Ollama RPG)
 
-## Requirements
+This project is a **Unity 6.4 Built-in RP** game with a **Python policy-orchestrator** sidecar. The git repo tracks **scripts, dialogue data, and minimal Unity configs** (~2 MB). **3D/audio assets are not in git** — you must re-import them after cloning.
 
-- Unity **6.4** (project version file targets **6000.4.x**; use the same minor line as your installed editor, e.g. `6000.4.2f1`).
-- [Ollama](https://ollama.com/) installed and running locally.
-- A small chat model pulled, for example:
+## Fresh-clone checklist
+
+1. Clone the repo and open the project root in **Unity 6000.4.x** (see `ProjectSettings/ProjectVersion.txt`).
+2. Let **Package Manager** resolve dependencies from `Packages/manifest.json`.
+3. Import every **Asset Store package** listed in [Asset Store packages](#asset-store-packages) (all are free unless noted).
+4. Download **Mixamo** characters and locomotion clips (see [Mixamo](#mixamo-free-account-required)).
+5. Rebuild **`Assets/Resources/` runtime mirrors** (see [Resources mirrors](#resources-mirrors-for-player-builds)) — editor play can load vendor paths directly, but standalone builds need these copies.
+6. Open **`Assets/sc2.unity`** — the shipped build scene (see [Scenes](#scenes)). Tracked in git.
+7. Optionally add **`Music/`** mp3 tracks and **`Assets/StreamingAssets/IslandTitle.png`** (see [Music and title art](#music-and-title-art)).
+8. Start the **Python sidecar** if using orchestrated dialogue (see [Python policy orchestrator](#python-policy-orchestrator)).
+9. Install **Ollama** and pull a chat model (see [Configure the game](#configure-the-game)).
+10. If the title prefab is missing, run **RPG → Build Startup Title Screen Prefab** in the Unity editor.
+
+**Render pipeline:** Built-in only. **Project Settings → Graphics → Scriptable Render Pipeline** must be empty. Several Store packs default to URP materials; follow each pack’s Built-in conversion notes where listed below.
+
+---
+
+## What git tracks vs what stays local
+
+| Tracked in git | Local only (re-import or copy) |
+|----------------|--------------------------------|
+| `Assets/Scripts/` | All Asset Store folders under `Assets/` |
+| `Assets/StreamingAssets/Dialogue/` | `Assets/Resources/` bulk mirrors (animals, Mixamo, props, audio, …) |
+| `ProjectSettings/`, `Packages/` | `Library/`, `Logs/`, `UserSettings/` |
+| Minimal configs: `DefaultOllamaSettings`, `sc2.unity`, `Room_Prototype`, `App.prefab`, UI prefabs | Asset Store 3D/audio packs under `Assets/` |
+| `services/policy_orchestrator/` | `services/**/.venv/`, `Music/`, `IslandTitle.png` |
+
+---
+
+## Asset Store packages
+
+Package names and IDs below come from Unity **`.meta` `AssetOrigin`** fields in this project. Import via **Window → Package Manager → My Assets**, or search [assetstore.unity.com](https://assetstore.unity.com) by name/ID while logged into your Unity ID.
+
+| Package | ID | Project folder | Role in this game |
+|---------|-----|----------------|-------------------|
+| [Free Island Collection](https://assetstore.unity.com/packages/3d/environments/landscapes/free-island-collection-104753) | 104753 | `Assets/Free Island Collection/` | Island terrain/sky/water baseline; `Scene 2` was the layout starting point |
+| [RPG Poly Pack - Lite](https://assetstore.unity.com/packages/3d/environments/landscapes/rpg-poly-pack-lite-148410) | 148410 | `Assets/RPGPP_LT/` | Village props (`rpgpp_lt_*` anchors: buildings, wagon, hills) |
+| [Medieval Castle - Modular](https://assetstore.unity.com/packages/3d/environments/fantasy/medieval-castle-modular-282498) | 282498 | `Assets/Advance Studios/Medieval Castle/` | `Castle` location mesh/prefabs |
+| [Old Warehouse](https://assetstore.unity.com/packages/3d/props/industrial/old-warehouse-116767) | 116767 | `Assets/AssetsStore/Warehouse/` | `Warehouse` dialogue anchor (`location_catalog.json`) |
+| [Medieval props](https://assetstore.unity.com/packages/3d/props/medieval-props-41540) | 41540 | `Assets/Resources/Medieval props/` | Interior props, pickups (`BookV1`, mugs, beds, …) |
+| [Mobile Books](https://assetstore.unity.com/packages/3d/props/mobile-books-3356) | 3356 | `Assets/Resources/Books/` | Quest spell books (`book_0001a`–`d`) |
+| [Treasure Set - Free Chest](https://assetstore.unity.com/packages/3d/props/treasure-set-free-chest-72345) | 72345 | `Assets/ChestFree/` | Chest props |
+| [Stylized Character Pack](https://assetstore.unity.com/packages/3d/characters/stylized-character-pack-360808) | 360808 | `Assets/StylizedCharacterPack/` | Playable hero lineup (Bat, Leopard, Rabbit, SeaGull, Sloth) |
+| [npc_casual_set_00](https://assetstore.unity.com/packages/3d/characters/humanoids/humans/npc-casual-set-00-326131) | 326131 | `Assets/npc_casual_set_00/` | Modular casual humanoids → village NPCs |
+| [City People FREE Samples](https://assetstore.unity.com/packages/3d/characters/city-people-free-samples-260446) | 260446 | `Assets/DenysAlmaral/CityPeople/` | Additional human NPC pool |
+| [Animals FREE](https://assetstore.unity.com/packages/3d/characters/animals/animals-free-animated-low-poly-3d-models-260727) | 260727 | `Assets/ithappy/Animals_FREE/` | Ambient wildlife (chicken, horse, dog, kitty, tiger, …) |
+| [Necromancer Army - Ghoul](https://assetstore.unity.com/packages/3d/characters/creatures/necromancer-army-ghoul-283690) | 283690 | `Assets/SimpleAssets/Necromancers/Ghoul/` | Story boss `Ghoul` |
+| [Free Fantasy Spider](https://assetstore.unity.com/packages/3d/characters/creatures/free-fantasy-spider-10104) | 10104 | `Assets/fantasySpider/` | Scene predators `spider_1` … `spider_5` |
+| [Owl Statue](https://assetstore.unity.com/packages/3d/props/exterior/owl-statue-264588) | 264588 | `Assets/AK Studio Art/Owl Statue/` | Terrain owl statues + sidekick spawn anchors |
+| [Sitting Lion Statue](https://assetstore.unity.com/packages/3d/props/exterior/sitting-lion-statue-260994) | 260994 | `Assets/AK Studio Art/Sitting Lion Statue/` | Terrain lion statues |
+| [Magic Effects FREE](https://assetstore.unity.com/packages/vfx/particles/spells/magic-effects-free-247933) | 247933 | `Assets/Hovl Studio/Magic effects pack/` | Character-select VFX, spell bursts, lightning aura source |
+| [#NVJOB Simple Water Shaders](https://assetstore.unity.com/packages/vfx/shaders/nvjob-simple-water-shaders-149916) | 149916 | `Assets/#NVJOB Water Shaders V2/` | `Water Surface Mirror` plane (underwater death logic) |
+| [FREE SOUND COLLECTION](https://assetstore.unity.com/packages/audio/sound-fx/free-sound-collection-291913) | 291913 | `Assets/FREE SOUND PACK_TM(355)/` | UI/footstep/ambience SFX (see `RuntimeAudioClipLoader.cs`) |
+| [Progress Bars - Customizable and Extensible](https://assetstore.unity.com/packages/tools/gui/progress-bars-customizable-and-extensible-health-bars-etc-268457) | 268457 | `Assets/InfinityPBR - Magic Pig Games/Progress Bar/` | Reference only; HUD is implemented in `HeroHealthBarHud.cs` |
+
+### Package-specific import notes
+
+- **City People FREE Samples** — materials import as URP by default. For Built-in, open `Assets/DenysAlmaral/CityPeople/URP&Built-in/` and import **`convert-to-BUILT-IN`** (documented in the pack readme).
+- **Animals FREE** — use the **Built-in** demo/scene variant for Unity 6. Copy `*_001` prefabs into `Resources/AnimalsFree/` for runtime spawning (see below).
+- **Stylized Character Pack** — Store listing targets URP; this project uses **editor-path fallback** (`Assets/StylizedCharacterPack/Prefabs/Characters`) and **`Resources/StylizedCharacterPack/Characters`** copies for builds. Copy prefabs into Resources after import.
+- **Magic Effects FREE** — add **Bloom** post-processing for store-quality screenshots (pack readme). Default spell/selection paths are hard-coded in `RuntimeLevelBootstrap` / `PlayerCharacterSelectionStage` under `Assets/Hovl Studio/Magic effects pack/Prefabs/…`.
+- **NVJOB water** — scene object must be named **`Water Surface Mirror`** for `PlayerUnderwaterDeathController`.
+- **SUIMONO Water System** (ID 4387) — **not required**; only leftover gizmo icons exist under `Assets/Gizmos/`.
+
+### Unity Registry packages (already in `Packages/manifest.json`)
+
+Resolved automatically on project open:
+
+- `com.unity.ai.navigation` — NavMesh / agents
+- `com.unity.probuilder` — greybox tooling
+- `com.unity.nuget.newtonsoft-json` — JSON in dialogue pipeline
+- `com.unity.ugui` + **TextMesh Pro** (import TMP Essentials when prompted)
+- `com.unity.postprocessing` — used by some environment packs
+
+---
+
+## Mixamo (free account required)
+
+[Mixamo](https://www.mixamo.com/) provides the humanoid meshes and shared locomotion clips under `Assets/Resources/Mixamo/`. These are **not** Unity Asset Store packages.
+
+**Characters** (`Assets/Resources/Mixamo/Characters/`) — FBX exports configured as **Humanoid** rigs. This project includes:
+
+`Abe`, `Derek`, `Jones`, `Leonard`, `Louise`, `Maria W`, `Parasite`, `Pirate`, `Steve`, `Warrok W`, `Zlorp`
+
+**Animations** (`Assets/Resources/Mixamo/Animations/`) — shared locomotion library used by `MixamoAnimationCatalog`, `MixamoHumanLocomotionDriver`, and villager idle/walk overrides on `RuntimeLevelBootstrap`:
+
+`Idle1`, `Idle2`, `Walking`, `Running`, `Angry`, `Button Pushing`, `Defeated`, `Drunk Walk`, `Dying`, `Flying`, `Hit`, `jab`, `Kick`, `Opening`
+
+After downloading from Mixamo: place FBX under the Resources paths above (keep `.meta` GUIDs if copying from an existing machine, or re-link references in the editor).
+
+**Casual human mesh bases** (`Assets/Resources/CasualHumanMeshBases/`) — copies of `npc_csl_00_character_*.fbx` from **npc_casual_set_00** for embedded clip playback (`HumanLocomotionPlayableDriver`).
+
+---
+
+## Resources mirrors (for player builds)
+
+Runtime bootstrap code loads from `Resources/` (see `GameConstants.cs` and `Bootstrap*Resources.cs`). In the **editor**, several loaders also probe vendor folders directly; **standalone builds** need the Resources copies.
+
+| Resources path | Copy from |
+|----------------|-----------|
+| `AnimalsFree/*_001.prefab` | `ithappy/Animals_FREE/Prefabs/` (names ending `_001`) |
+| `RpgBootstrap/Tiger_001`, `Kitty_001` | Subset of animal prefabs (defaults when bootstrap overrides are empty) |
+| `NpcCasualCharacters/npc_csl_00_character_*` | `npc_casual_set_00/Prefabs/` |
+| `CityPeopleCharacters/*` | `DenysAlmaral/CityPeople/Prefabs/` (humanoid character prefabs) |
+| `StylizedCharacterPack/Characters/*` | `StylizedCharacterPack/Prefabs/Characters/` |
+| `Bootstrap/StandaloneAvatarLineup.asset` | ScriptableObject listing the five stylized hero prefabs |
+| `Mixamo/Characters/`, `Mixamo/Animations/` | Mixamo FBX (see above) |
+| `CasualHumanMeshBases/` | `npc_casual_set_00` mesh FBX bases |
+| `Medieval props/Prefabs/` | Already stored under Resources in this project layout |
+| `Books/Prefabs/` | Mobile Books prefabs |
+| `BundledAudio/**` | Subset of FREE SOUND COLLECTION wav → renamed (mapping in `RuntimeAudioClipLoader.cs`) |
+| `Vfx/LightningAura.prefab` | Derived from Hovl **Magic Effects FREE** (lightning-style prefab) |
+| `UI/RpgTitleUi.mat`, `RpgUiSimpleText.mat` | Small UI materials (tracked in git) |
+
+Fastest path after import: copy the entire `Assets/Resources/` tree from a machine that already has a working project (excluding `.gitignore`’d caches), then re-open Unity.
+
+---
+
+## Music and title art
+
+**Music** — `MusicDirector` reads looping tracks from the project-root **`Music/`** folder (gitignored):
+
+- `Opening.mp3`
+- `Ambient.mp3`, `Ambient 2.mp3`, `Ambient 3.mp3`
+- `Victory.mp3`
+
+Fallback: `Resources/BundledAudio/Music/*.wav` (lower-quality placeholders if mp3 folder is absent).
+
+**Title splash image** — optional `Assets/StreamingAssets/IslandTitle.png` (gitignored). Without it, the title screen uses a procedural fallback.
+
+---
+
+## Scenes
+
+| Scene | In git? | Purpose |
+|-------|---------|---------|
+| **`Assets/sc2.unity`** | Yes | **Primary build scene** (`EditorBuildSettings` enabled entry). Full island layout: castle, warehouse, ghoul, spiders, NPC guides, water, etc. |
+| `Assets/Scenes/Room_Prototype.unity` | Yes | Dialogue/Ollama prototype slice (capsule + bootstrap floor) |
+| `Assets/Scenes/App.prefab` | Yes | Shared app shell referenced by scenes |
+
+After importing the Asset Store packs above, open **`Assets/sc2.unity`** directly. The scene references vendor prefabs by GUID — missing imports show as pink/missing prefabs until packs are installed. Key hierarchy names: `Castle`, `Warehouse`, `Ghoul`, `spider_*`, `Water Surface Mirror`, numbered houses/NPC anchors.
+
+---
+
+## Python policy orchestrator
+
+Local FastAPI sidecar for dialogue policy, summaries, and narrative generation.
+
+```bash
+cd services/policy_orchestrator
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --host 127.0.0.1 --port 8787 --reload
+```
+
+Tests: `pytest` (from the same venv).
+
+JSON schemas under `Assets/StreamingAssets/Dialogue/schema/` are generated from Pydantic models:
+
+```bash
+python scripts/generate_schemas.py
+```
+
+Enable in **`DefaultOllamaSettings.asset`**: `usePythonPolicyOrchestrator`, `usePythonSummaryService`, `usePythonNarrativeGeneration`; default sidecar URL `http://127.0.0.1:8787`.
+
+---
+
+## Configure the game
+
+### Requirements
+
+- Unity **6000.4.x** (e.g. `6000.4.2f1` per `ProjectVersion.txt`).
+- [Ollama](https://ollama.com/) installed locally.
+- Example model:
 
 ```bash
 ollama pull llama3.2
 ```
 
-## Configure the game
+### Ollama settings
 
-1. Open this folder as a Unity project.
-2. Wait for Package Manager to resolve (`com.unity.ai.navigation`, `com.unity.probuilder`, `com.unity.nuget.newtonsoft-json`, `com.unity.ugui`).
-3. Edit **[Assets/Resources/DefaultOllamaSettings.asset](Assets/Resources/DefaultOllamaSettings.asset)** if needed:
-   - `baseUrl` — default `http://127.0.0.1:11434`
-   - `model` — must match an installed Ollama model name (e.g. `llama3.2`)
+Edit **`Assets/Resources/DefaultOllamaSettings.asset`**:
 
-HTTP to localhost is allowed in **Player Settings** via `insecureHttpOption` for this prototype.
+- `baseUrl` — default `http://127.0.0.1:11434`
+- `model` — must match a pulled Ollama model (e.g. `llama3.2` or `gemma3:4b`)
 
-## Ollama connectivity (from the game)
+HTTP to localhost is allowed via Player Settings `insecureHttpOption`.
 
-With the dialogue panel open, click **Test Ollama** (top-right). That runs **`GET {baseUrl}/api/tags`** (same host as chat) and prints one line in the log:
+### Ollama connectivity test
 
-Implementation note: HTTP completion is driven by **`UnityWebRequestAsyncOperation.completed`** and marshalled with **`SynchronizationContext`** so results are applied on the **main thread** (polling with `await Task.Yield()` can leave the main thread and break both UnityWebRequest and UI updates).
-
-- **Reachable** — Ollama answered; the message also says whether your configured **model** name appears in the tag list (if not, run `ollama pull <name>` or fix **DefaultOllamaSettings**).
-- **Cannot reach** — wrong URL, firewall, or Ollama not running (`ollama serve` / the desktop app).
-
-From a terminal you can double-check:
+With the dialogue panel open, click **Test Ollama** (runs `GET {baseUrl}/api/tags`). From terminal:
 
 ```bash
 curl -s http://127.0.0.1:11434/api/tags | head
 ```
 
-## Startup title UI (TMP prefab)
+### Ollama Cloud (optional)
 
-After cloning or if the title screen is missing, open the project in Unity and run **RPG → Build Startup Title Screen Prefab**. That writes `Assets/Resources/UI/StartupTitleScreenPanel.prefab` (TextMeshPro + layout). Without it, Play shows a small fallback screen that continues with local Ollama defaults.
+On the startup title screen, choose **Ollama Cloud** and paste an API key from [ollama.com/settings/keys](https://ollama.com/settings/keys). Keys are **runtime-only** (never commit them into `.asset` files). Base URL: `https://ollama.com`.
 
-## Ollama Cloud (optional)
+### Startup title UI
 
-On the startup **title** screen, choose **Ollama Cloud** instead of **This machine** if you want inference on [ollama.com](https://ollama.com/) without a local daemon. Create an API key at [ollama.com/settings/keys](https://ollama.com/settings/keys). The game uses base URL `https://ollama.com` and sends `Authorization: Bearer <key>` on `/api/tags` and `/api/chat` (same JSON as local). The model field defaults to `gemma3:4b` when you switch to cloud; use **Refresh model list** to query tags with your current settings. When the title phase is disabled in the bootstrap, the game keeps **DefaultOllamaSettings** (local URL and model) as before.
+Run **RPG → Build Startup Title Screen Prefab** to regenerate `Assets/Resources/UI/StartupTitleScreenPanel.prefab` if missing.
 
-## UI typing / clicks (Unity 6)
+### UI input (Unity 6)
 
-This slice uses the legacy **Standalone Input Module** on the generated **EventSystem** (no `com.unity.inputsystem` dependency — avoids version mismatches with some Unity 6000.4 editor builds).
+Uses legacy **Standalone Input Module**. Set **Edit → Project Settings → Player → Active Input Handling** to **Input Manager (Old)** or **Both**.
 
-Set **Edit → Project Settings → Player → Active Input Handling** to **Input Manager (Old)** or **Both**. If it is **Input System Package** only, the UI may not receive mouse/keyboard until you switch to **Both** or **Old**. Remove duplicate **EventSystem** objects if clicks still do nothing.
-
-## Scene view (edit mode)
-
-Opening **Room_Prototype** should spawn a child **`_SliceContent`** under **App**: floor (built-in plane mesh), player and NPC (built-in capsule meshes), default lighting, and a main camera. That uses **`[ExecuteAlways]`** on `RuntimeLevelBootstrap` so primitives appear **without** pressing Play.
-
-Use **File → Save** (or Save Project) once so `_SliceContent` stays in the scene on disk. To force a rebuild, delete the **`_SliceContent`** object under **App** and save; it will be recreated the next time the scene loads.
+---
 
 ## Playtest
 
-1. Open **[Assets/Scenes/Room_Prototype.unity](Assets/Scenes/Room_Prototype.unity)**.
-2. Press **Play**.
-3. **Click** the floor to walk. Move near the NPC capsule.
-4. Press **E** to talk. Introduce yourself; then ask what year it is.
-5. The NPC must answer with the canonical year from **WorldStateService** (see Hierarchy `Managers` at runtime). If Ollama is down, you should see a fallback line.
+**Full game:** open **`Assets/sc2.unity`** (once restored), press Play.
 
-## Controls
+**Prototype slice:** open **`Assets/Scenes/Room_Prototype.unity`**, press Play, click floor to walk, press **E** to talk.
 
-- **Left click** on the floor — move (NavMesh); optional for dialogue in the current test setup.
-- **E** — start talking. **`PlayerInteractor`** defaults to **not** requiring trigger range: **E** finds the first `NpcDialogueBinding` in the scene so you can test dialogue from anywhere. Enable **Require In Trigger Range** on the Player’s `PlayerInteractor` component when you want proximity-only interaction again.
-- **Enter** — send the line in the chat box (when the dialogue panel is open; hold **Shift+Enter** for a newline if you switch the input to multi-line later).
+### Controls
+
+- **Left click** — move (NavMesh)
+- **E** — talk (`PlayerInteractor`; range check optional)
+- **Enter** — send dialogue line
 - **Escape** — close dialogue
+
+---
 
 ## Authoring
 
-- **NPC persona**: [Assets/Resources/DefaultNpc.asset](Assets/Resources/DefaultNpc.asset) or create new `NpcDefinition` assets under `Assets/ScriptableObjects/NPCs/`.
-- **Prompt template**: [Assets/StreamingAssets/Dialogue/npc_system_template.txt](Assets/StreamingAssets/Dialogue/npc_system_template.txt)
+- **NPC persona:** `Assets/Resources/DefaultNpc.asset` or new `NpcDefinition` assets under `Assets/ScriptableObjects/NPCs/`
+- **Prompt template:** `Assets/StreamingAssets/Dialogue/npc_system_template.txt`
+- **World/narrative data:** `Assets/StreamingAssets/Dialogue/world/*.json`, `npc/*.json`, `schema/*.json`
 
-## Built-in geometry, Unity Registry packages, and free content
+---
 
-This project uses the **Built-in Render Pipeline** (see **Project Settings → Graphics → Scriptable Render Pipeline** is empty). Prefer assets and samples that work with **Built-in**; URP/HDRP-only materials need conversion or a pipeline change.
+## Folder layout convention
 
-### Folder layout
+| Path | Purpose |
+|------|---------|
+| `Assets/Scripts/` | All game code (tracked) |
+| `Assets/StreamingAssets/Dialogue/` | Runtime narrative JSON + templates (tracked) |
+| `Assets/Resources/` | Runtime-loadable mirrors of vendor prefabs/audio |
+| `Assets/<VendorPack>/` | Raw Asset Store imports (local, gitignored) |
+| `Assets/ThirdParty/`, `Assets/Art/` | Optional staging for future imports |
+| `Music/` | Soundtrack mp3 (gitignored) |
 
-These folders exist in the repo (placeholders via `.gitkeep`); Unity adds `.meta` files on import:
-
-- **[Assets/ThirdParty/](Assets/ThirdParty/)** — raw imports from the **Asset Store** or `.unitypackage` drops (do not hand-edit vendor files here).
-- **[Assets/Art/](Assets/Art/)** — prefabs, materials, and meshes you **reference from scenes and scripts** (curated copies or variants of Store content).
-
-### Unity Registry packages (ProBuilder)
-
-**ProBuilder** (`com.unity.probuilder`, **6.0.9**) is listed in **[Packages/manifest.json](Packages/manifest.json)**. After the editor resolves packages, use it for greybox meshes, rooms, and collision-friendly geometry.
-
-If your Unity minor version cannot resolve **6.0.9**, change the version string in `manifest.json` to one shown in **Window → Package Manager** for ProBuilder, or install ProBuilder from the Registry UI and let Unity rewrite the manifest.
-
-- After resolve: **Tools → ProBuilder → ProBuilder Window** (Unity 6).
-- **Built-in RP:** default ProBuilder materials work out of the box. If you later switch to URP/HDRP, use **Window → Package Manager → ProBuilder → Samples** and import the matching **shader support** sample for that pipeline.
-
-To add **more** official tools later: **Window → Package Manager**, set the dropdown to **Unity Registry**, pick a package (e.g. **Terrain Tools**, **Polybrush**), click **Install**. Prefer versions listed as compatible with your editor (6000.4.x).
-
-### Package samples (copy into `Assets/` before customizing)
-
-1. **Window → Package Manager** → select the package (e.g. ProBuilder).
-2. Expand **Samples** at the bottom of the package details.
-3. Click **Import** on a sample. Unity usually places content under **`Assets/Samples/<Package>/<version>/`**.
-4. For long-term edits, **duplicate** assets into **`Assets/Art/`** as prefab variants or copies so upgrades to the package do not overwrite your work.
-
-Do **not** edit assets under **`Library/PackageCache/`** — they are regenerated.
-
-### Built-in menu assets (no install)
-
-Use **GameObject → 3D Object** (Cube, Capsule, Plane, Terrain, etc.) and **Component → Physics** as starting points. The current slice already uses primitives from code in `RuntimeLevelBootstrap`; you can place additional built-in objects in the scene for blocking and props.
-
-**Terrain:** **GameObject → 3D Object → Terrain** uses the built-in terrain system. Walkable area must be included in **NavMesh** baking (e.g. **NavMeshSurface** on the terrain or a child object, or mark objects static and bake from the Navigation window — match how your scene is set up).
-
-### Unity Asset Store (free packs)
-
-1. **Window → Asset Store** (or browser → [assetstore.unity.com](https://assetstore.unity.com)) while logged into your Unity ID.
-2. Download/import into the project; keep unpacked files under **`Assets/ThirdParty/<PackName>/`** when possible.
-3. Check each asset’s **license** and **render pipeline** (Built-in vs URP) before relying on it in builds.
+Do **not** edit assets under `Library/PackageCache/` — it is regenerated.
