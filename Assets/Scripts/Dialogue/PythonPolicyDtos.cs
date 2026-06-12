@@ -16,6 +16,8 @@ namespace Rpg.Dialogue
         public Dictionary<string, string> socialTraits = new Dictionary<string, string>();
         public List<string> goals = new List<string>();
         public List<string> capabilities = new List<string>();
+        public string activePlanContext;
+        public string activeGoalsContext;
     }
 
     [Serializable]
@@ -104,6 +106,77 @@ namespace Rpg.Dialogue
     }
 
     [Serializable]
+    public sealed class PythonVector3Dto
+    {
+        public float x;
+        public float y;
+        public float z;
+    }
+
+    [Serializable]
+    public sealed class PythonNpcPlanStepDto
+    {
+        public string primitiveType;
+        public string stepType;
+        public PythonVector3Dto worldLocation;
+        public float worldX;
+        public float worldY;
+        public float worldZ;
+        public string targetNpcId;
+        public float durationSeconds;
+        public float stopDistanceMeters;
+        public string workId;
+    }
+
+    [Serializable]
+    public sealed class PythonNpcDeliberationNpcDto
+    {
+        public string npcId;
+        public string displayName;
+        public string npcType;
+        public string personality;
+        public Dictionary<string, string> socialTraits = new Dictionary<string, string>();
+        public List<string> capabilities = new List<string>();
+    }
+
+    [Serializable]
+    public sealed class PythonNpcDeliberationWorldDto
+    {
+        public string worldFacts;
+        public int currentYear;
+        public int currentDay;
+        public float currentHour24;
+        public string surroundingsBlock;
+    }
+
+    [Serializable]
+    public sealed class PythonNpcDeliberationRequestDto
+    {
+        public int schemaVersion = 1;
+        public string requestId;
+        public string model;
+        public string reason;
+        public PythonNpcDeliberationNpcDto npc;
+        public PythonNpcDeliberationWorldDto world;
+        public List<string> currentGoals = new List<string>();
+        public List<PythonNpcPlanStepDto> currentPlan = new List<PythonNpcPlanStepDto>();
+        public List<string> agreements = new List<string>();
+        public string apiToken;
+        public string providerBaseUrl;
+    }
+
+    [Serializable]
+    public sealed class PythonNpcDeliberationResponseDto
+    {
+        public int schemaVersion = 1;
+        public string requestId;
+        public string npcId;
+        public List<string> goals = new List<string>();
+        public List<PythonNpcPlanStepDto> planSteps = new List<PythonNpcPlanStepDto>();
+        public string rawAssistant;
+    }
+
+    [Serializable]
     public sealed class PythonPolicyErrorDto
     {
         public string code;
@@ -118,5 +191,6 @@ namespace Rpg.Dialogue
         public PythonDialogueTurnResponseDto dialogue;
         public PythonSummaryResponseDto summary;
         public PythonNarrativeResponseDto narrative;
+        public PythonNpcDeliberationResponseDto deliberation;
     }
 }

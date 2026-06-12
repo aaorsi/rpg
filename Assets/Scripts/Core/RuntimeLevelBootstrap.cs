@@ -1083,6 +1083,8 @@ namespace Rpg.Core
 
                     if (spawnedNpc.GetComponent<VillagerAmbientRoutine>() == null)
                         spawnedNpc.gameObject.AddComponent<VillagerAmbientRoutine>();
+                    if (spawnedNpc.GetComponent<NpcAgentController>() == null)
+                        spawnedNpc.gameObject.AddComponent<NpcAgentController>();
                     if (spawnedNpc.TryGetComponent<NpcCasualLocomotionPlayableDriver>(out var villagerAnim))
                         villagerAnim.SetLocomotionReferenceSpeed(planarReferenceSpeed: 2.2f, maxWalkSpeed: 1.35f, deadZone: 0.02f);
                 }
@@ -4628,6 +4630,7 @@ namespace Rpg.Core
             var managers = new GameObject("Managers");
             var world = managers.AddComponent<WorldStateService>();
             var dialogue = managers.AddComponent<DialogueManager>();
+            var villageSimulation = managers.AddComponent<VillageAgentSimulation>();
 
             var uiGo = new GameObject("UICanvas");
             var ui = uiGo.AddComponent<DialogueUIController>();
@@ -4650,6 +4653,7 @@ namespace Rpg.Core
             ollamaRuntime.name = ollamaAsset.name + "_Runtime";
             OllamaStartupSelection.ApplyToRuntimeClone(ollamaRuntime);
             dialogue.ConfigureRuntime(ollamaRuntime, null);
+            villageSimulation.ConfigureRuntime(world, ollamaRuntime);
             var npcIds = CollectNpcIdsForNarrativeGeneration();
             _ = dialogue.GenerateNarrativeCanonAsync(dialogue.RuntimeGenerationSeed, npcIds);
         }
