@@ -91,6 +91,43 @@ namespace Rpg.Npc.Tests.EditMode
             StringAssert.Contains("Local opinion", transport.LastRequest.agreements[1]);
         }
 
+        [Test]
+        public void DebugControls_ForceChat_QueuesPlanAndGossip()
+        {
+            var left = CreateVillagerRoot("villager_010");
+            var right = CreateVillagerRoot("villager_011");
+            var simulationGo = new GameObject("village_simulation_debug_chat");
+            _created.Add(simulationGo);
+            var simulation = simulationGo.AddComponent<VillageAgentSimulation>();
+            simulation.ConfigureForTests(new FailingTransport());
+
+            var ok = simulation.TryDebugForceChat("villager_010", "villager_011", 1.5f);
+
+            Assert.IsTrue(ok);
+            Assert.IsTrue(left.GetComponent<NpcAgentController>().IsExecutingPlan);
+            Assert.IsTrue(right.GetComponent<NpcAgentController>().IsExecutingPlan);
+            Assert.AreEqual(1, simulation.OpinionService.PendingGossipCount);
+        }
+
+        [Test]
+        public void DebugControls_GroupAskResponse_AllowsManualAccept()
+        {
+            CreateVillagerRoot("villager_020");
+            CreateVillagerRoot("villager_021");
+            var simulationGo = new GameObject("village_simulation_debug_ask");
+            _created.Add(simulationGo);
+            var simulation = simulationGo.AddComponent<VillageAgentSimulation>();
+            simulation.ConfigureForTests(new FailingTransport());
+
+            Assert.IsTrue(simulation.TryDebugApplyHeroImpact("villager_020", 0f, 90f, 0f, 0f, 50f));
+            var asks = simulation.DebugSnapshotGroupAsks();
+            Assert.IsNotNull(asks);
+            Assert.IsTrue(asks.Exists(a => a != null && a.askId == "ask_run_for_mayor" && a.state == "offered"));
+
+            Assert.IsTrue(simulation.TryDebugRespondToGroupAsk("ask_run_for_mayor", true, "villager_020", out var signals));
+            CollectionAssert.Contains(signals, "unlock:m_village_mayor_arc");
+        }
+
         GameObject CreateVillagerRoot(string npcId)
         {
             var go = new GameObject(npcId);

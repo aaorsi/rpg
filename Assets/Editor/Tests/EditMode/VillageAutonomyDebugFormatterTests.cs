@@ -62,5 +62,18 @@ namespace Rpg.Npc.Tests.EditMode
 
             Assert.AreEqual("opinion: hero=12.3, leadership=-4.6, piety=0.1, wealth=7.8, helpfulness=9.9", line);
         }
+
+        [Test]
+        public void BuildGroupAskLine_FormatsAskSummary()
+        {
+            var line = VillageAutonomyDebugFormatter.BuildGroupAskLine(new VillageGroupAskRecord
+            {
+                askId = "ask_run_for_mayor",
+                state = "offered",
+                title = "Run for mayor"
+            });
+
+            Assert.AreEqual("ask: ask_run_for_mayor (offered) - Run for mayor", line);
+        }
     }
 }

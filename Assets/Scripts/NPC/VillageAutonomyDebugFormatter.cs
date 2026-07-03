@@ -60,6 +60,17 @@ namespace Rpg.Npc
                 $"opinion: hero={summary.OpinionTowardHero:0.0}, leadership={summary.AggregateLeadership:0.0}, piety={summary.AggregatePiety:0.0}, wealth={summary.AggregateWealth:0.0}, helpfulness={summary.AggregateHelpfulness:0.0}";
         }
 
+        public static string BuildGroupAskLine(VillageGroupAskRecord ask)
+        {
+            if (ask == null)
+                return "ask: unavailable";
+
+            var askId = Clean(ask.askId);
+            var title = Clean(ask.title);
+            var state = Clean(ask.state);
+            return $"ask: {askId} ({state}) - {title}";
+        }
+
         static string Clean(string value)
         {
             return string.IsNullOrWhiteSpace(value) ? "n/a" : value.Trim();

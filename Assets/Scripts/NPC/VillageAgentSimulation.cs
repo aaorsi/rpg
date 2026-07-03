@@ -78,6 +78,89 @@ namespace Rpg.Npc
                 _scheduler?.RequestImmediate(_participantCache[i], reason);
         }
 
+        public bool TryDebugApplyHeroImpact(
+            string npcId,
+            float opinionDelta,
+            float leadershipDelta,
+            float pietyDelta,
+            float wealthDelta,
+            float helpfulnessDelta)
+        {
+            EnsureDebugStateReady();
+            if (_opinionService == null || string.IsNullOrWhiteSpace(npcId))
+                return false;
+            if (!_stateByNpcId.ContainsKey(npcId))
+                return false;
+
+            _opinionService.ApplyHeroImpact(npcId, opinionDelta, leadershipDelta, pietyDelta, wealthDelta, helpfulnessDelta);
+            return true;
+        }
+
+        public bool TryDebugQueueGossip(string npcA, string npcB)
+        {
+            EnsureDebugStateReady();
+            if (_opinionService == null || string.IsNullOrWhiteSpace(npcA) || string.IsNullOrWhiteSpace(npcB))
+                return false;
+            if (string.Equals(npcA, npcB, StringComparison.OrdinalIgnoreCase))
+                return false;
+            if (!_stateByNpcId.ContainsKey(npcA) || !_stateByNpcId.ContainsKey(npcB))
+                return false;
+
+            _opinionService.QueueInteraction(npcA, npcB);
+            return true;
+        }
+
+        public bool TryDebugForceChat(string speakerNpcId, string targetNpcId, float chatDurationSeconds = 2f)
+        {
+            EnsureDebugStateReady();
+            if (string.IsNullOrWhiteSpace(speakerNpcId) || string.IsNullOrWhiteSpace(targetNpcId))
+                return false;
+            if (string.Equals(speakerNpcId, targetNpcId, StringComparison.OrdinalIgnoreCase))
+                return false;
+            if (!_stateByNpcId.TryGetValue(speakerNpcId, out var speaker) || speaker == null || speaker.Controller == null)
+                return false;
+            if (!_stateByNpcId.TryGetValue(targetNpcId, out var target) || target == null || target.Controller == null)
+                return false;
+
+            var duration = Mathf.Max(0.25f, chatDurationSeconds);
+            speaker.Controller.SetPlan(new[]
+            {
+                new NpcPrimitiveStep
+                {
+                    PrimitiveType = NpcPrimitiveTypes.ChatWithNpc,
+                    TargetNpcId = targetNpcId,
+                    DurationSeconds = duration
+                }
+            });
+            target.Controller.SetPlan(new[]
+            {
+                new NpcPrimitiveStep
+                {
+                    PrimitiveType = NpcPrimitiveTypes.ChatWithNpc,
+                    TargetNpcId = speakerNpcId,
+                    DurationSeconds = duration
+                }
+            });
+
+            _opinionService?.QueueInteraction(speakerNpcId, targetNpcId);
+            return true;
+        }
+
+        public List<VillageGroupAskRecord> DebugSnapshotGroupAsks()
+        {
+            EnsureDebugStateReady();
+            return _opinionService != null ? _opinionService.SnapshotGroupAsks() : new List<VillageGroupAskRecord>();
+        }
+
+        public bool TryDebugRespondToGroupAsk(string askId, bool accept, string responderNpcId, out List<string> signals)
+        {
+            EnsureDebugStateReady();
+            signals = new List<string>();
+            if (_opinionService == null)
+                return false;
+            return _opinionService.TryRespondToGroupAsk(askId, accept, responderNpcId, out signals);
+        }
+
         public void ConfigureForTests(IVillageDeliberationTransport transport, WorldStateService worldState = null)
         {
             _transport = transport;
@@ -126,6 +209,12 @@ namespace Rpg.Npc
                 _transport = new SidecarVillageDeliberationTransport(_settings);
             _nextVillagerRefreshAt = -1f;
             _initialized = true;
+        }
+
+        void EnsureDebugStateReady()
+        {
+            EnsureInitialized();
+            RefreshVillagerRegistry(Time.time);
         }
 
         void RefreshVillagerRegistry(float nowTime)
