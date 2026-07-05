@@ -13,9 +13,11 @@ from .models import (
     NpcDeliberationRequest,
     NpcPersonaGenerationRequest,
     PolicyEnvelope,
+    TtsSynthesizeRequest,
 )
 from .ollama_adapter import OllamaAdapter
 from .orchestrator import PolicyOrchestrator
+from .tts_service import PocketTtsService
 
 logging.basicConfig(level=logging.INFO)
 
@@ -23,8 +25,10 @@ logging.basicConfig(level=logging.INFO)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     client = httpx.AsyncClient()
+    tts_service = PocketTtsService()
     app.state.http_client = client
-    app.state.orchestrator = PolicyOrchestrator(OllamaAdapter(client))
+    app.state.tts_service = tts_service
+    app.state.orchestrator = PolicyOrchestrator(OllamaAdapter(client), tts_service=tts_service)
     try:
         yield
     finally:
@@ -39,8 +43,10 @@ def get_orchestrator(request: Request) -> PolicyOrchestrator:
 
 
 @app.get("/healthz")
-async def healthz() -> dict:
-    return {"ok": True}
+async def healthz(request: Request) -> dict:
+    service = getattr(request.app.state, "tts_service", None)
+    tts = service.stats() if service is not None else {"enabled": False}
+    return {"ok": True, "tts": tts}
 
 
 @app.post("/v1/dialogue/turn", response_model=PolicyEnvelope)
@@ -81,3 +87,11 @@ async def npc_deliberate(
     orchestrator: PolicyOrchestrator = Depends(get_orchestrator),
 ) -> PolicyEnvelope:
     return await orchestrator.run_npc_deliberation(request)
+
+
+@app.post("/v1/tts/synthesize", response_model=PolicyEnvelope)
+async def tts_synthesize(
+    request: TtsSynthesizeRequest,
+    orchestrator: PolicyOrchestrator = Depends(get_orchestrator),
+) -> PolicyEnvelope:
+    return await orchestrator.run_tts_synthesize(request)
