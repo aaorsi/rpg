@@ -41,6 +41,12 @@ namespace Rpg.Dialogue
             return PostAsync(path, request, token);
         }
 
+        public Task<PythonPolicyEnvelopeDto> TtsSynthesizeAsync(PythonTtsSynthesizeRequestDto request, CancellationToken token)
+        {
+            var path = "/v1/tts/synthesize";
+            return PostAsync(path, request, token);
+        }
+
         Task<PythonPolicyEnvelopeDto> PostAsync<T>(string path, T payload, CancellationToken cancellationToken)
         {
             if (_settings == null)

@@ -17,3 +17,14 @@ MonoBehaviour:
   timeoutSeconds: 120
   maxTokens: 512
   displayRawReplyOnJsonFailure: 0
+  usePythonPolicyOrchestrator: 1
+  usePythonSummaryService: 1
+  usePythonNarrativeGeneration: 1
+  pythonPolicyBaseUrl: http://127.0.0.1:8787
+  providerBaseUrl: http://127.0.0.1:11434
+  providerApiToken: 
+  ollamaApiBearerToken: 
+  useTtsSynthesis: 1
+  ttsDefaultVoiceId: alba
+  ttsLanguage: english
+  ttsMaxCharacters: 280
