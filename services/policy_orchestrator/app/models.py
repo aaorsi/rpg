@@ -166,6 +166,16 @@ class NpcDeliberationRequest(StrictCamelModel):
     provider_base_url: Optional[str] = None
 
 
+class TtsSynthesizeRequest(StrictCamelModel):
+    schema_version: int = SCHEMA_VERSION
+    request_id: str = ""
+    text: str
+    voice_id: str = ""
+    language: str = "english"
+    quantize: bool = True
+    speaker_role: Literal["npc", "hero", "system"] = "npc"
+
+
 # --- LLM-output single source of truth --------------------------------------
 # These mirror Assets/StreamingAssets/Dialogue/schema/*.schema.json, which are
 # generated from these models via scripts/generate_schemas.py.
@@ -309,6 +319,18 @@ class NpcDeliberationResponse(CamelModel):
     raw_assistant: str = ""
 
 
+class TtsSynthesizeResponse(CamelModel):
+    schema_version: int = SCHEMA_VERSION
+    request_id: str = ""
+    sample_rate: int
+    audio_format: Literal["wav"] = "wav"
+    audio_base64: str
+    synthesis_ms: int = 0
+    rtf: float = 0.0
+    time_to_first_chunk_ms: int = 0
+    speaker_role: Literal["npc", "hero", "system"] = "npc"
+
+
 class PolicyError(CamelModel):
     code: str
     message: str
@@ -322,10 +344,11 @@ class PolicyEnvelope(CamelModel):
     narrative: Optional[NarrativeGenerationResponse] = None
     persona: Optional[NpcPersonaGenerationResponse] = None
     deliberation: Optional[NpcDeliberationResponse] = None
+    tts: Optional[TtsSynthesizeResponse] = None
 
     @model_validator(mode="after")
     def _check_payload(self) -> "PolicyEnvelope":
-        payloads = [self.dialogue, self.summary, self.narrative, self.persona, self.deliberation]
+        payloads = [self.dialogue, self.summary, self.narrative, self.persona, self.deliberation, self.tts]
         if self.ok and not any(payloads):
             raise ValueError("Successful envelope must include a payload.")
         if not self.ok and self.error is None:
