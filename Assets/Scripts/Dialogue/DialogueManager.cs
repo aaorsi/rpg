@@ -244,6 +244,7 @@ namespace Rpg.Dialogue
             RefreshNarrativeWiring();
             EnsureNpcPersonaBindings();
             NpcChickenTheftConfrontation.EnsureOnAllNpcBindings();
+            WarmupTtsInBackground();
         }
 
         public int RuntimeGenerationSeed => _runtimeGenerationSeed;
@@ -396,16 +397,16 @@ namespace Rpg.Dialogue
             else
             {
                 if (!string.IsNullOrWhiteSpace(forcedNpcOpening))
-                    ui.AppendNpcLine(FormatGhoulNpcSpeechForUi(npc, forcedNpcOpening.Trim()));
+                    EmitNpcLineWithSpeech(FormatGhoulNpcSpeechForUi(npc, forcedNpcOpening.Trim()), forcedNpcOpening.Trim());
                 else if (GhoulMenaceController.IsGhoulStoryNpcId(npc.npcId) && !string.IsNullOrWhiteSpace(npc.openingLine))
-                    ui.AppendNpcLine(FormatGhoulNpcSpeechForUi(npc, npc.openingLine));
+                    EmitNpcLineWithSpeech(FormatGhoulNpcSpeechForUi(npc, npc.openingLine), npc.openingLine);
                 else
                 {
                     var generatedIntro = BuildGeneratedOpeningLine(npc.npcId);
                     if (!string.IsNullOrWhiteSpace(generatedIntro))
-                        ui.AppendNpcLine(FormatGhoulNpcSpeechForUi(npc, generatedIntro));
+                        EmitNpcLineWithSpeech(FormatGhoulNpcSpeechForUi(npc, generatedIntro), generatedIntro);
                     else if (!string.IsNullOrWhiteSpace(npc.openingLine))
-                        ui.AppendNpcLine(FormatGhoulNpcSpeechForUi(npc, npc.openingLine));
+                        EmitNpcLineWithSpeech(FormatGhoulNpcSpeechForUi(npc, npc.openingLine), npc.openingLine);
                 }
             }
 
@@ -454,7 +455,7 @@ namespace Rpg.Dialogue
             var replayLine = _activeNpc != null && GhoulMenaceController.IsGhoulStoryNpcId(_activeNpc.npcId)
                 ? FormatGhoulNpcSpeechForUi(_activeNpc, npcShown)
                 : npcShown;
-            ui.AppendNpcLine(replayLine);
+            EmitNpcLineWithSpeech(replayLine, npcShown);
         }
 
         public void EndDialogue()
@@ -678,8 +679,7 @@ namespace Rpg.Dialogue
 
                 if (!string.IsNullOrEmpty(result.DisplayText))
                 {
-                    ui.AppendNpcLine(FormatGhoulNpcSpeechForUi(_activeNpc, result.DisplayText));
-                    QueueDialogueSpeech(result.DisplayText, "npc");
+                    EmitNpcLineWithSpeech(FormatGhoulNpcSpeechForUi(_activeNpc, result.DisplayText), result.DisplayText);
                 }
 
                 if (result.AckYear && worldState != null)
@@ -2024,6 +2024,14 @@ namespace Rpg.Dialogue
             _ = RequestDialogueSpeechAsync(cleaned, speakerRole, _ttsCts.Token);
         }
 
+        void EmitNpcLineWithSpeech(string uiText, string speechText = null)
+        {
+            if (ui == null || string.IsNullOrWhiteSpace(uiText))
+                return;
+            ui.AppendNpcLine(uiText);
+            QueueDialogueSpeech(string.IsNullOrWhiteSpace(speechText) ? uiText : speechText, "npc");
+        }
+
         async Task RequestDialogueSpeechAsync(string text, string speakerRole, CancellationToken cancellationToken)
         {
             try
@@ -2085,6 +2093,36 @@ namespace Rpg.Dialogue
             _ttsCts?.Dispose();
             _ttsCts = null;
             _dialogueSpeechPlayer?.Stop();
+        }
+
+        void WarmupTtsInBackground()
+        {
+            if (_ollamaSettings == null || !_ollamaSettings.useTtsSynthesis || _pythonClient == null)
+                return;
+            _ = RequestTtsWarmupAsync();
+        }
+
+        async Task RequestTtsWarmupAsync()
+        {
+            try
+            {
+                var warmup = new PythonTtsSynthesizeRequestDto
+                {
+                    requestId = Guid.NewGuid().ToString("N"),
+                    text = "Warmup.",
+                    voiceId = ResolveOrAssignHeroVoiceId(),
+                    language = string.IsNullOrWhiteSpace(_ollamaSettings.ttsLanguage) ? "english" : _ollamaSettings.ttsLanguage.Trim(),
+                    quantize = true,
+                    speakerRole = "system"
+                };
+                var envelope = await _pythonClient.TtsSynthesizeAsync(warmup, CancellationToken.None);
+                if (envelope == null || !envelope.ok)
+                    Debug.LogWarning("[DialogueTTS] Warmup request failed.");
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[DialogueTTS] Warmup exception: {ex.Message}");
+            }
         }
 
         string ResolveOrAssignHeroVoiceId()
