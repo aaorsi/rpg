@@ -20,6 +20,7 @@ from .orchestrator import PolicyOrchestrator
 from .tts_service import PocketTtsService
 
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("policy_orchestrator")
 
 
 @asynccontextmanager
@@ -29,6 +30,13 @@ async def lifespan(app: FastAPI):
     app.state.http_client = client
     app.state.tts_service = tts_service
     app.state.orchestrator = PolicyOrchestrator(OllamaAdapter(client), tts_service=tts_service)
+    if tts_service.enabled and tts_service.warmup_on_start:
+        try:
+            logger.info("TTS warmup starting...")
+            tts_service.warmup()
+            logger.info("TTS warmup finished.")
+        except Exception as ex:
+            logger.warning("TTS warmup failed: %s", ex)
     try:
         yield
     finally:

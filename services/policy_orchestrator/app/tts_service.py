@@ -20,6 +20,7 @@ class TtsConfig:
     default_voice_id: str
     default_quantize: bool
     max_text_chars: int
+    warmup_on_start: bool
 
     @staticmethod
     def from_env() -> "TtsConfig":
@@ -29,6 +30,7 @@ class TtsConfig:
             default_voice_id=os.getenv("TTS_DEFAULT_VOICE", "alba").strip() or "alba",
             default_quantize=_read_bool("TTS_QUANTIZE", default=True),
             max_text_chars=max(32, _read_int("TTS_MAX_TEXT_CHARS", default=280)),
+            warmup_on_start=_read_bool("TTS_WARMUP_ON_START", default=True),
         )
 
 
@@ -42,6 +44,10 @@ class PocketTtsService:
     @property
     def enabled(self) -> bool:
         return self._config.enabled
+
+    @property
+    def warmup_on_start(self) -> bool:
+        return self._config.warmup_on_start
 
     def warmup(self) -> None:
         if not self._config.enabled:

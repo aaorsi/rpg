@@ -65,6 +65,32 @@ namespace Rpg.Dialogue
         readonly ChickenTheftDialogueScenario _chickenTheftScenario = new ChickenTheftDialogueScenario();
         string _pendingSkipNpcGuideReturnForNpcId;
         DialogueSpeechPlayer _dialogueSpeechPlayer;
+        NpcVoiceAssignmentRepository _voiceAssignments;
+        string _heroVoiceId;
+        static readonly string[] TtsEnglishVoices =
+        {
+            "alba",
+            "anna",
+            "azelma",
+            "bill_boerst",
+            "caro_davy",
+            "charles",
+            "cosette",
+            "eponine",
+            "eve",
+            "fantine",
+            "george",
+            "jane",
+            "jean",
+            "javert",
+            "marius",
+            "mary",
+            "michael",
+            "paul",
+            "peter_yearsley",
+            "stuart_bell",
+            "vera"
+        };
 
         sealed class PendingTransferDecision
         {
@@ -196,6 +222,7 @@ namespace Rpg.Dialogue
             _transcriptRepo = transcriptRepository ?? new NpcDialogueTranscriptRepository();
             _summaryRepo = new NpcSummaryRepository();
             _personaRepo = new NpcPersonaRepository();
+            _voiceAssignments = new NpcVoiceAssignmentRepository();
             _ollamaSettings = settings;
             _promptComposer = composer ?? new PromptComposer(null, _memory);
             _ollamaClient = new OllamaClient(_ollamaSettings);
@@ -213,6 +240,7 @@ namespace Rpg.Dialogue
             _generationService = new NarrativeGenerationService(_contentLibrary, _ollamaClient, _ollamaSettings, _sessionStore, _refs);
             _runtimeGenerationSeed = ComputeStableSessionSeed();
             _narrativeCanon = _generationService.BuildFallback(_runtimeGenerationSeed, _refsSnapshotNpcIds());
+            _heroVoiceId = ResolveOrAssignHeroVoiceId();
             RefreshNarrativeWiring();
             EnsureNpcPersonaBindings();
             NpcChickenTheftConfrontation.EnsureOnAllNpcBindings();
@@ -354,6 +382,7 @@ namespace Rpg.Dialogue
             _cts?.Dispose();
             _cts = new CancellationTokenSource();
             CancelDialogueSpeech();
+            EnsureNpcVoiceAssigned(npc.npcId);
 
             ui.Open(npc.displayName);
             _inventory?.EnsureSeededNpc(npc.npcId);
@@ -2043,14 +2072,11 @@ namespace Rpg.Dialogue
 
         string ResolveDialogueVoiceId(string speakerRole)
         {
-            if (_ollamaSettings == null)
-                return "alba";
-            var configured = string.IsNullOrWhiteSpace(_ollamaSettings.ttsDefaultVoiceId)
-                ? "alba"
-                : _ollamaSettings.ttsDefaultVoiceId.Trim();
             if (string.Equals(speakerRole, "hero", StringComparison.OrdinalIgnoreCase))
-                return configured;
-            return configured;
+                return ResolveOrAssignHeroVoiceId();
+            if (_activeNpc != null && !string.IsNullOrWhiteSpace(_activeNpc.npcId))
+                return EnsureNpcVoiceAssigned(_activeNpc.npcId);
+            return ResolveOrAssignHeroVoiceId();
         }
 
         void CancelDialogueSpeech()
@@ -2059,6 +2085,33 @@ namespace Rpg.Dialogue
             _ttsCts?.Dispose();
             _ttsCts = null;
             _dialogueSpeechPlayer?.Stop();
+        }
+
+        string ResolveOrAssignHeroVoiceId()
+        {
+            if (!string.IsNullOrWhiteSpace(_heroVoiceId))
+                return _heroVoiceId;
+            var configured = _ollamaSettings == null || string.IsNullOrWhiteSpace(_ollamaSettings.ttsDefaultVoiceId)
+                ? "alba"
+                : _ollamaSettings.ttsDefaultVoiceId.Trim();
+            if (_voiceAssignments == null)
+            {
+                _heroVoiceId = configured;
+                return _heroVoiceId;
+            }
+
+            _heroVoiceId = _voiceAssignments.GetOrAssignHeroVoice(configured, TtsEnglishVoices);
+            return string.IsNullOrWhiteSpace(_heroVoiceId) ? "alba" : _heroVoiceId;
+        }
+
+        string EnsureNpcVoiceAssigned(string npcId)
+        {
+            if (string.IsNullOrWhiteSpace(npcId))
+                return ResolveOrAssignHeroVoiceId();
+            if (_voiceAssignments == null)
+                return ResolveOrAssignHeroVoiceId();
+            var hero = ResolveOrAssignHeroVoiceId();
+            return _voiceAssignments.GetOrAssignNpcVoice(npcId.Trim(), hero, TtsEnglishVoices);
         }
 
         void RefreshWorldInventoryVisuals()
