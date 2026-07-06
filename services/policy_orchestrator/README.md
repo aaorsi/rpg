@@ -39,6 +39,7 @@ Environment toggles:
 - `TTS_QUANTIZE=true`
 - `TTS_DEFAULT_VOICE=alba`
 - `TTS_MAX_TEXT_CHARS=280`
+- `TTS_WARMUP_ON_START=true` (loads model/voice at sidecar startup to reduce first in-game delay)
 
 ## Tests
 
