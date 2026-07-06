@@ -63,6 +63,7 @@ namespace Rpg.Dialogue
         {
             var normalizedNpcId = string.IsNullOrWhiteSpace(npcId) ? "npc_unknown" : npcId.Trim();
             var pool = BuildNormalizedPool(voicePool, heroVoice);
+            var normalizedHero = NormalizeVoice(heroVoice);
             string assigned = null;
 
             _store.Update<DialogueVoiceAssignmentsDoc>(
@@ -71,7 +72,9 @@ namespace Rpg.Dialogue
                 doc =>
                 {
                     Normalize(doc);
-                    if (doc.npcVoiceById.TryGetValue(normalizedNpcId, out var existing) && pool.Contains(existing))
+                    if (doc.npcVoiceById.TryGetValue(normalizedNpcId, out var existing)
+                        && pool.Contains(existing)
+                        && !string.Equals(existing, normalizedHero, StringComparison.OrdinalIgnoreCase))
                     {
                         assigned = existing;
                         return doc;
@@ -112,7 +115,11 @@ namespace Rpg.Dialogue
                 Normalize,
                 Normalize);
 
-            return string.IsNullOrWhiteSpace(assigned) ? NormalizeVoice(heroVoice) : assigned;
+            if (string.IsNullOrWhiteSpace(assigned))
+                return FindFallbackNpcVoice(pool, normalizedHero);
+            return string.Equals(assigned, normalizedHero, StringComparison.OrdinalIgnoreCase)
+                ? FindFallbackNpcVoice(pool, normalizedHero)
+                : assigned;
         }
 
         DialogueVoiceAssignmentsDoc BuildFallback()
@@ -176,6 +183,19 @@ namespace Rpg.Dialogue
                 var idx = _rng.Next(0, options.Count);
                 return options[idx];
             }
+        }
+
+        static string FindFallbackNpcVoice(IReadOnlyList<string> pool, string heroVoice)
+        {
+            if (pool == null || pool.Count == 0)
+                return "alba";
+            for (var i = 0; i < pool.Count; i++)
+            {
+                var v = pool[i];
+                if (!string.Equals(v, heroVoice, StringComparison.OrdinalIgnoreCase))
+                    return v;
+            }
+            return pool[0];
         }
 
         static string NormalizeVoice(string voiceId)
