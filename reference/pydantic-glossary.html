@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pydantic Glossary — RPG Policy Orchestrator</title>
+  <style>
+    :root {
+      --text: #1a1a1a;
+      --muted: #555;
+      --accent: #8b4513;
+      --bg: #faf9f7;
+      --rule: #ddd;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Palatino Linotype", Palatino, Georgia, serif;
+      font-size: 17px;
+      line-height: 1.55;
+      color: var(--text);
+      background: var(--bg);
+      max-width: 42rem;
+      margin: 2.5rem auto;
+      padding: 0 1.5rem 4rem;
+    }
+    h1 { font-size: 1.75rem; font-weight: 600; margin-bottom: 0.25rem; }
+    .subtitle { color: var(--muted); font-style: italic; margin-bottom: 2rem; }
+    h2 { font-size: 1.1rem; margin-top: 2rem; border-bottom: 1px solid var(--rule); padding-bottom: 0.3rem; }
+    dl { margin: 0; }
+    dt { font-weight: 600; margin-top: 1.1rem; color: var(--accent); }
+    dd { margin: 0.2rem 0 0 0; }
+    code, .path { font-family: "SF Mono", Menlo, monospace; font-size: 0.88em; background: #eee; padding: 0.1em 0.35em; border-radius: 3px; }
+    footer { margin-top: 3rem; font-size: 0.85rem; color: var(--muted); border-top: 1px solid var(--rule); padding-top: 1rem; }
+    a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <h1>Pydantic Glossary</h1>
+  <p class="subtitle">RPG policy orchestrator — quick reference</p>
+
+  <h2>Base classes</h2>
+  <dl>
+    <dt>CamelModel</dt>
+    <dd>Base with <code>alias_generator=to_camel</code>, <code>populate_by_name=True</code>, <code>extra="ignore"</code>. Used for LLM outputs and API responses — unknown JSON keys are dropped silently.</dd>
+
+    <dt>StrictCamelModel</dt>
+    <dd>Same camelCase wire format, but <code>extra="forbid"</code>. Used for inbound requests from Unity — unknown fields raise <code>ValidationError</code>.</dd>
+  </dl>
+
+  <h2>Key models</h2>
+  <dl>
+    <dt>DialogueTurnRequest</dt>
+    <dd>POST <code>/v1/dialogue/turn</code> body. Bundles <code>NpcContext</code> + <code>TurnContext</code>.</dd>
+
+    <dt>LlmDialogueOutput</dt>
+    <dd><strong>Single source of truth</strong> for the shape the LLM must emit. Drives <code>dialogue_turn_result.schema.json</code>.</dd>
+
+    <dt>SessionNarrativeCanon</dt>
+    <dd>Canonical session narrative. Drives <code>session_narrative.schema.json</code>.</dd>
+
+    <dt>PolicyEnvelope</dt>
+    <dd>Uniform success/failure wrapper. <code>@model_validator</code> enforces: ok=true requires a payload; ok=false requires <code>error</code>.</dd>
+  </dl>
+
+  <h2>Operations</h2>
+  <dl>
+    <dt>model_validate(obj)</dt>
+    <dd>Parse a dict (or compatible object) into a typed model. Raises <code>ValidationError</code> on bad data. Used after <code>parse_dialogue_output()</code> coerces messy LLM text.</dd>
+
+    <dt>model_dump(by_alias=True)</dt>
+    <dd>Serialize to dict with camelCase keys for JSON wire format.</dd>
+
+    <dt>model_json_schema(by_alias=True)</dt>
+    <dd>Emit JSON Schema for Unity and documentation. Called by <code>schema_export.build_schemas()</code>.</dd>
+  </dl>
+
+  <h2>Pipeline terms</h2>
+  <dl>
+    <dt>SoT (single source of truth)</dt>
+    <dd><code>app/models.py</code> — committed <code>*.schema.json</code> files are generated artifacts, not hand-edited.</dd>
+
+    <dt>Schema sync test</dt>
+    <dd><code>tests/test_schema_sync.py</code> — fails CI if generated schemas drift from models. Fix: <code>python scripts/generate_schemas.py</code>.</dd>
+
+    <dt>Tolerant parse</dt>
+    <dd><code>dialogue_parsing.py</code> — strips markdown fences, normalizes key synonyms, then hands a clean dict to <code>LlmDialogueOutput.model_validate</code>.</dd>
+  </dl>
+
+  <footer>
+    See also: <a href="../lessons/0001-pydantic-three-roles.html">Lesson 1 — Three roles</a> ·
+    <a href="https://docs.pydantic.dev/latest/concepts/models/">Pydantic docs</a>
+  </footer>
+</body>
+</html>
