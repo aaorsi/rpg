@@ -27,9 +27,12 @@ from .models import (
     PolicyEnvelope,
     PolicyError,
     SessionNarrativeCanon,
+    TtsSynthesizeRequest,
+    TtsSynthesizeResponse,
 )
 from .ollama_adapter import OllamaAdapter
 from .policies import DeliberationPolicy, PolicyRegistry
+from .tts_service import PocketTtsService
 
 logger = logging.getLogger("policy_orchestrator")
 
@@ -55,8 +58,9 @@ _PRIMITIVE_SYNONYMS = {
 
 
 class PolicyOrchestrator:
-    def __init__(self, adapter: OllamaAdapter) -> None:
+    def __init__(self, adapter: OllamaAdapter, tts_service: Optional[PocketTtsService] = None) -> None:
         self._adapter = adapter
+        self._tts_service = tts_service
         self._registry = PolicyRegistry()
         self._deliberation_policy = DeliberationPolicy(
             allowed_primitives={
@@ -227,6 +231,38 @@ class PolicyOrchestrator:
             return PolicyEnvelope(ok=True, deliberation=response)
         except Exception as ex:
             return self._fail("npc_deliberation_failed", rid, ex)
+
+    async def run_tts_synthesize(self, request: TtsSynthesizeRequest) -> PolicyEnvelope:
+        rid = request.request_id
+        version_error = self._reject_unsupported_version(request.schema_version, rid)
+        if version_error is not None:
+            return version_error
+        if self._tts_service is None:
+            return PolicyEnvelope(ok=False, error=PolicyError(code="tts_unavailable", message="tts_unavailable"))
+        try:
+            payload = self._tts_service.synthesize(
+                text=request.text,
+                voice_id=request.voice_id,
+                language=request.language,
+                quantize=request.quantize,
+                speaker_role=request.speaker_role,
+            )
+            response = TtsSynthesizeResponse(
+                request_id=rid,
+                sample_rate=payload["sampleRate"],
+                audio_format=payload["audioFormat"],
+                audio_base64=payload["audioBase64"],
+                synthesis_ms=payload["synthesisMs"],
+                rtf=payload["rtf"],
+                time_to_first_chunk_ms=payload["timeToFirstChunkMs"],
+                speaker_role=payload["speakerRole"],
+            )
+            return PolicyEnvelope(ok=True, tts=response)
+        except ValueError as ex:
+            code = str(ex).strip() or "tts_bad_request"
+            return PolicyEnvelope(ok=False, error=PolicyError(code=code, message=code))
+        except Exception as ex:
+            return self._fail("tts_failed", rid, ex)
 
     # --- Helpers ------------------------------------------------------------
 

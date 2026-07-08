@@ -25,8 +25,41 @@ class FakeAdapter:
         return self.reply
 
 
-def _client(reply: str) -> TestClient:
-    orchestrator = PolicyOrchestrator(FakeAdapter(reply))
+class FakeTtsService:
+    def __init__(self, *, enabled: bool = True) -> None:
+        self._enabled = enabled
+
+    def synthesize(self, *, text: str, voice_id: str, language: str, quantize: bool, speaker_role: str) -> dict:
+        if not self._enabled:
+            raise ValueError("tts_disabled")
+        if not text.strip():
+            raise ValueError("empty_text")
+        if len(text.strip()) > 280:
+            raise ValueError("text_too_long")
+        voice = voice_id.strip() or "alba"
+        return {
+            "sampleRate": 24000,
+            "audioFormat": "wav",
+            "audioBase64": f"fake_{voice}",
+            "synthesisMs": 120,
+            "rtf": 3.5,
+            "timeToFirstChunkMs": 190,
+            "speakerRole": speaker_role,
+        }
+
+    def stats(self) -> dict:
+        return {
+            "enabled": self._enabled,
+            "loadedModels": 0,
+            "cachedVoices": 0,
+            "defaultLanguage": "english",
+            "defaultVoiceId": "alba",
+            "maxTextChars": 280,
+        }
+
+
+def _client(reply: str, *, tts_enabled: bool = True) -> TestClient:
+    orchestrator = PolicyOrchestrator(FakeAdapter(reply), tts_service=FakeTtsService(enabled=tts_enabled))
     app.dependency_overrides[get_orchestrator] = lambda: orchestrator
     return TestClient(app)
 
@@ -39,7 +72,9 @@ def _clear_overrides():
 
 def test_healthz() -> None:
     with TestClient(app) as client:
-        assert client.get("/healthz").json() == {"ok": True}
+        body = client.get("/healthz").json()
+        assert body["ok"] is True
+        assert "tts" in body
 
 
 def test_dialogue_turn_success_and_policy_filtering() -> None:
@@ -378,3 +413,55 @@ def test_narrative_generate_success_for_valid_routes() -> None:
     narrative = data["narrative"]
     assert narrative["schemaVersion"] == 1
     assert '"seed":99' in narrative["canonJson"]
+
+
+def test_tts_synthesize_success() -> None:
+    body = {
+        "requestId": "tts_1",
+        "text": "Hello there.",
+        "voiceId": "alba",
+        "language": "english",
+        "quantize": True,
+        "speakerRole": "npc",
+    }
+    with _client('{"say":"hi"}') as client:
+        data = client.post("/v1/tts/synthesize", json=body).json()
+    assert data["ok"] is True
+    tts = data["tts"]
+    assert tts["requestId"] == "tts_1"
+    assert tts["sampleRate"] == 24000
+    assert tts["audioFormat"] == "wav"
+    assert tts["audioBase64"] == "fake_alba"
+
+
+def test_tts_synthesize_disabled_returns_error() -> None:
+    body = {
+        "text": "Hello there.",
+        "speakerRole": "npc",
+    }
+    with _client('{"say":"hi"}', tts_enabled=False) as client:
+        data = client.post("/v1/tts/synthesize", json=body).json()
+    assert data["ok"] is False
+    assert data["error"]["code"] == "tts_disabled"
+
+
+def test_tts_synthesize_rejects_empty_text() -> None:
+    body = {
+        "text": "   ",
+        "speakerRole": "hero",
+    }
+    with _client('{"say":"hi"}') as client:
+        data = client.post("/v1/tts/synthesize", json=body).json()
+    assert data["ok"] is False
+    assert data["error"]["code"] == "empty_text"
+
+
+def test_tts_synthesize_rejects_long_text() -> None:
+    body = {
+        "text": "A" * 500,
+        "speakerRole": "npc",
+    }
+    with _client('{"say":"hi"}') as client:
+        data = client.post("/v1/tts/synthesize", json=body).json()
+    assert data["ok"] is False
+    assert data["error"]["code"] == "text_too_long"

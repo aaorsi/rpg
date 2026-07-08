@@ -21,6 +21,26 @@ pip install -r requirements.txt
 uvicorn app.main:app --host 127.0.0.1 --port 8787 --reload
 ```
 
+## Pocket TTS setup (CPU)
+
+Pocket TTS is optional and disabled by default unless enabled by environment variables.
+
+```bash
+cd services/policy_orchestrator
+source .venv/bin/activate
+pip install --index-url https://download.pytorch.org/whl/cpu torch
+pip install pocket-tts
+```
+
+Environment toggles:
+
+- `TTS_ENABLED=true`
+- `TTS_LANGUAGE=english`
+- `TTS_QUANTIZE=true`
+- `TTS_DEFAULT_VOICE=alba`
+- `TTS_MAX_TEXT_CHARS=280`
+- `TTS_WARMUP_ON_START=true` (loads model/voice at sidecar startup to reduce first in-game delay)
+
 ## Tests
 
 ```bash

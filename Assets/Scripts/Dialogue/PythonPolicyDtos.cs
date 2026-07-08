@@ -191,6 +191,32 @@ namespace Rpg.Dialogue
     }
 
     [Serializable]
+    public sealed class PythonTtsSynthesizeRequestDto
+    {
+        public int schemaVersion = 1;
+        public string requestId;
+        public string text;
+        public string voiceId;
+        public string language = "english";
+        public bool quantize = true;
+        public string speakerRole = "npc";
+    }
+
+    [Serializable]
+    public sealed class PythonTtsSynthesizeResponseDto
+    {
+        public int schemaVersion = 1;
+        public string requestId;
+        public int sampleRate;
+        public string audioFormat;
+        public string audioBase64;
+        public int synthesisMs;
+        public float rtf;
+        public int timeToFirstChunkMs;
+        public string speakerRole;
+    }
+
+    [Serializable]
     public sealed class PythonPolicyErrorDto
     {
         public string code;
@@ -206,5 +232,6 @@ namespace Rpg.Dialogue
         public PythonSummaryResponseDto summary;
         public PythonNarrativeResponseDto narrative;
         public PythonNpcDeliberationResponseDto deliberation;
+        public PythonTtsSynthesizeResponseDto tts;
     }
 }

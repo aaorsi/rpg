@@ -40,6 +40,20 @@ namespace Rpg.Dialogue
         [Tooltip("Sent as Authorization: Bearer for Unity HTTP calls to Ollama Cloud (https://ollama.com). Leave empty for local Ollama.")]
         public string ollamaApiBearerToken = "";
 
+        [Header("Pocket TTS")]
+        [Tooltip("When enabled, Unity requests dialogue speech synthesis from the Python sidecar.")]
+        public bool useTtsSynthesis = true;
+
+        [Tooltip("Default voice id used by sidecar TTS endpoint.")]
+        public string ttsDefaultVoiceId = "alba";
+
+        [Tooltip("Pocket TTS language identifier (for example: english).")]
+        public string ttsLanguage = "english";
+
+        [Min(32)]
+        [Tooltip("Maximum dialogue characters sent to sidecar TTS per line.")]
+        public int ttsMaxCharacters = 280;
+
         public string ResolveChatUrl()
         {
             var root = string.IsNullOrWhiteSpace(baseUrl) ? "http://127.0.0.1:11434" : baseUrl.TrimEnd('/');

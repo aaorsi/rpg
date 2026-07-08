@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Rpg.Audio;
 using Rpg.Core;
 using Rpg.GameState;
 using Rpg.Npc;
@@ -40,6 +41,7 @@ namespace Rpg.Dialogue
         bool _dialogueOpen;
         CancellationTokenSource _cts;
         CancellationTokenSource _summaryCts;
+        CancellationTokenSource _ttsCts;
         SynchronizationContext _mainThreadContext;
         string _sessionBreakInset;
         NarrativeGenerationService _generationService;
@@ -62,6 +64,33 @@ namespace Rpg.Dialogue
         int _runtimeGenerationSeed;
         readonly ChickenTheftDialogueScenario _chickenTheftScenario = new ChickenTheftDialogueScenario();
         string _pendingSkipNpcGuideReturnForNpcId;
+        DialogueSpeechPlayer _dialogueSpeechPlayer;
+        NpcVoiceAssignmentRepository _voiceAssignments;
+        string _heroVoiceId;
+        static readonly string[] TtsEnglishVoices =
+        {
+            "alba",
+            "anna",
+            "azelma",
+            "bill_boerst",
+            "caro_davy",
+            "charles",
+            "cosette",
+            "eponine",
+            "eve",
+            "fantine",
+            "george",
+            "jane",
+            "jean",
+            "javert",
+            "marius",
+            "mary",
+            "michael",
+            "paul",
+            "peter_yearsley",
+            "stuart_bell",
+            "vera"
+        };
 
         sealed class PendingTransferDecision
         {
@@ -102,6 +131,7 @@ namespace Rpg.Dialogue
                     NpcSummaryRepository.ClearAllForNewPlaySession();
             }
             _summaryCts = new CancellationTokenSource();
+            _dialogueSpeechPlayer = new DialogueSpeechPlayer(gameObject);
             if (policy == null)
                 policy = ScriptableObject.CreateInstance<DialoguePolicy>();
         }
@@ -166,6 +196,9 @@ namespace Rpg.Dialogue
             _cts?.Dispose();
             _summaryCts?.Cancel();
             _summaryCts?.Dispose();
+            _ttsCts?.Cancel();
+            _ttsCts?.Dispose();
+            _dialogueSpeechPlayer?.Stop();
         }
 
         /// <summary>Wires core references (typically from runtime bootstrap).</summary>
@@ -189,6 +222,7 @@ namespace Rpg.Dialogue
             _transcriptRepo = transcriptRepository ?? new NpcDialogueTranscriptRepository();
             _summaryRepo = new NpcSummaryRepository();
             _personaRepo = new NpcPersonaRepository();
+            _voiceAssignments = new NpcVoiceAssignmentRepository();
             _ollamaSettings = settings;
             _promptComposer = composer ?? new PromptComposer(null, _memory);
             _ollamaClient = new OllamaClient(_ollamaSettings);
@@ -206,9 +240,11 @@ namespace Rpg.Dialogue
             _generationService = new NarrativeGenerationService(_contentLibrary, _ollamaClient, _ollamaSettings, _sessionStore, _refs);
             _runtimeGenerationSeed = ComputeStableSessionSeed();
             _narrativeCanon = _generationService.BuildFallback(_runtimeGenerationSeed, _refsSnapshotNpcIds());
+            _heroVoiceId = ResolveOrAssignHeroVoiceId();
             RefreshNarrativeWiring();
             EnsureNpcPersonaBindings();
             NpcChickenTheftConfrontation.EnsureOnAllNpcBindings();
+            WarmupTtsInBackground();
         }
 
         public int RuntimeGenerationSeed => _runtimeGenerationSeed;
@@ -346,6 +382,8 @@ namespace Rpg.Dialogue
             _cts?.Cancel();
             _cts?.Dispose();
             _cts = new CancellationTokenSource();
+            CancelDialogueSpeech();
+            EnsureNpcVoiceAssigned(npc.npcId);
 
             ui.Open(npc.displayName);
             _inventory?.EnsureSeededNpc(npc.npcId);
@@ -359,16 +397,16 @@ namespace Rpg.Dialogue
             else
             {
                 if (!string.IsNullOrWhiteSpace(forcedNpcOpening))
-                    ui.AppendNpcLine(FormatGhoulNpcSpeechForUi(npc, forcedNpcOpening.Trim()));
+                    EmitNpcLineWithSpeech(FormatGhoulNpcSpeechForUi(npc, forcedNpcOpening.Trim()), forcedNpcOpening.Trim());
                 else if (GhoulMenaceController.IsGhoulStoryNpcId(npc.npcId) && !string.IsNullOrWhiteSpace(npc.openingLine))
-                    ui.AppendNpcLine(FormatGhoulNpcSpeechForUi(npc, npc.openingLine));
+                    EmitNpcLineWithSpeech(FormatGhoulNpcSpeechForUi(npc, npc.openingLine), npc.openingLine);
                 else
                 {
                     var generatedIntro = BuildGeneratedOpeningLine(npc.npcId);
                     if (!string.IsNullOrWhiteSpace(generatedIntro))
-                        ui.AppendNpcLine(FormatGhoulNpcSpeechForUi(npc, generatedIntro));
+                        EmitNpcLineWithSpeech(FormatGhoulNpcSpeechForUi(npc, generatedIntro), generatedIntro);
                     else if (!string.IsNullOrWhiteSpace(npc.openingLine))
-                        ui.AppendNpcLine(FormatGhoulNpcSpeechForUi(npc, npc.openingLine));
+                        EmitNpcLineWithSpeech(FormatGhoulNpcSpeechForUi(npc, npc.openingLine), npc.openingLine);
                 }
             }
 
@@ -417,7 +455,7 @@ namespace Rpg.Dialogue
             var replayLine = _activeNpc != null && GhoulMenaceController.IsGhoulStoryNpcId(_activeNpc.npcId)
                 ? FormatGhoulNpcSpeechForUi(_activeNpc, npcShown)
                 : npcShown;
-            ui.AppendNpcLine(replayLine);
+            EmitNpcLineWithSpeech(replayLine, npcShown);
         }
 
         public void EndDialogue()
@@ -445,6 +483,7 @@ namespace Rpg.Dialogue
             _activeNpc = null;
             _session = null;
             _cts?.Cancel();
+            CancelDialogueSpeech();
             ui?.Close();
             DialogueClosed?.Invoke(closingNpcId ?? string.Empty);
         }
@@ -601,6 +640,7 @@ namespace Rpg.Dialogue
 
             ui.SetThinking(true);
             ui.AppendPlayerLine(line);
+            QueueDialogueSpeech(line, "hero");
 
             DialogueResult result;
             try
@@ -638,7 +678,9 @@ namespace Rpg.Dialogue
                 }
 
                 if (!string.IsNullOrEmpty(result.DisplayText))
-                    ui.AppendNpcLine(FormatGhoulNpcSpeechForUi(_activeNpc, result.DisplayText));
+                {
+                    EmitNpcLineWithSpeech(FormatGhoulNpcSpeechForUi(_activeNpc, result.DisplayText), result.DisplayText);
+                }
 
                 if (result.AckYear && worldState != null)
                     worldState.MarkPlayerAcknowledgedYear();
@@ -1204,49 +1246,56 @@ namespace Rpg.Dialogue
             var activeGoalsContext = ResolveActiveGoalsContext(_activeNpc.npcId, profile, persona);
             if (_ollamaSettings.usePythonPolicyOrchestrator && _pythonClient != null && _activeNpc != null)
             {
-                var req = new PythonDialogueTurnRequestDto
+                try
                 {
-                    requestId = Guid.NewGuid().ToString("N"),
-                    model = string.IsNullOrWhiteSpace(_activeNpc.ollamaModelOverride) ? _ollamaSettings.model : _activeNpc.ollamaModelOverride,
-                    apiToken = _ollamaSettings.providerApiToken,
-                    providerBaseUrl = _ollamaSettings.providerBaseUrl,
-                    npc = new PythonNpcContextDto
+                    var req = new PythonDialogueTurnRequestDto
                     {
-                        npcId = _activeNpc.npcId ?? string.Empty,
-                        displayName = _activeNpc.displayName ?? string.Empty,
-                        npcType = type,
-                        roleSummary = _activeNpc.roleSummary ?? string.Empty,
-                        toneAndVocabulary = _activeNpc.toneAndVocabulary ?? string.Empty,
-                        safetyRules = _activeNpc.safetyRules ?? string.Empty,
-                        personality = ResolvePersonality(profile, persona),
-                        socialTraits = ResolveSocialTraits(profile, persona),
-                        goals = ResolveGoals(profile, persona),
-                        capabilities = ResolveCapabilities(profile, persona, type),
-                        activePlanContext = activePlanContext,
-                        activeGoalsContext = activeGoalsContext
-                    },
-                    turn = new PythonTurnContextDto
+                        requestId = Guid.NewGuid().ToString("N"),
+                        model = string.IsNullOrWhiteSpace(_activeNpc.ollamaModelOverride) ? _ollamaSettings.model : _activeNpc.ollamaModelOverride,
+                        apiToken = _ollamaSettings.providerApiToken,
+                        providerBaseUrl = _ollamaSettings.providerBaseUrl,
+                        npc = new PythonNpcContextDto
+                        {
+                            npcId = _activeNpc.npcId ?? string.Empty,
+                            displayName = _activeNpc.displayName ?? string.Empty,
+                            npcType = type,
+                            roleSummary = _activeNpc.roleSummary ?? string.Empty,
+                            toneAndVocabulary = _activeNpc.toneAndVocabulary ?? string.Empty,
+                            safetyRules = _activeNpc.safetyRules ?? string.Empty,
+                            personality = ResolvePersonality(profile, persona),
+                            socialTraits = ResolveSocialTraits(profile, persona),
+                            goals = ResolveGoals(profile, persona),
+                            capabilities = ResolveCapabilities(profile, persona, type),
+                            activePlanContext = activePlanContext,
+                            activeGoalsContext = activeGoalsContext
+                        },
+                        turn = new PythonTurnContextDto
+                        {
+                            worldFacts = world.ToFactsBlock(),
+                            memoryBlock = _memory != null ? _memory.BuildPromptBlock(_activeNpc.npcId) : string.Empty,
+                            summaryBlock = BuildSummaryBlockForSidecar(npcSummary),
+                            inventoryBlock = inventoryBlock,
+                            surroundingsBlock = NpcSurroundingsScanner.BuildPromptBlock(_activeNpc.npcId),
+                            narrativeBlock = BuildNarrativeBlockForSidecar(_narrativeCanon, _activeNpc.npcId),
+                            recentTurns = _session != null ? new List<OllamaMessageDto>(_session.GetRecentTurnMessages()) : new List<OllamaMessageDto>(),
+                            latestPlayerLine = playerLine ?? string.Empty
+                        }
+                    };
+                    var envelope = await _pythonClient.DialogueTurnAsync(req, cancellationToken);
+                    if (envelope != null && envelope.ok && envelope.dialogue != null && !string.IsNullOrWhiteSpace(envelope.dialogue.say))
                     {
-                        worldFacts = world.ToFactsBlock(),
-                        memoryBlock = _memory != null ? _memory.BuildPromptBlock(_activeNpc.npcId) : string.Empty,
-                        summaryBlock = BuildSummaryBlockForSidecar(npcSummary),
-                        inventoryBlock = inventoryBlock,
-                        surroundingsBlock = NpcSurroundingsScanner.BuildPromptBlock(_activeNpc.npcId),
-                        narrativeBlock = BuildNarrativeBlockForSidecar(_narrativeCanon, _activeNpc.npcId),
-                        recentTurns = _session != null ? new List<OllamaMessageDto>(_session.GetRecentTurnMessages()) : new List<OllamaMessageDto>(),
-                        latestPlayerLine = playerLine ?? string.Empty
+                        var sidecarPayload = ResponseValidator.BuildPayloadFromDialogueDto(envelope.dialogue);
+                        var assistantLineForSession = envelope.dialogue.rawAssistant ?? envelope.dialogue.say;
+                        return CommitSuccessfulTurn(playerLine, assistantLineForSession, envelope.dialogue.rawAssistant, sidecarPayload);
                     }
-                };
-                var envelope = await _pythonClient.DialogueTurnAsync(req, cancellationToken);
-                if (envelope != null && envelope.ok && envelope.dialogue != null && !string.IsNullOrWhiteSpace(envelope.dialogue.say))
-                {
-                    var sidecarPayload = ResponseValidator.BuildPayloadFromDialogueDto(envelope.dialogue);
-                    var assistantLineForSession = envelope.dialogue.rawAssistant ?? envelope.dialogue.say;
-                    return CommitSuccessfulTurn(playerLine, assistantLineForSession, envelope.dialogue.rawAssistant, sidecarPayload);
-                }
 
-                var err = envelope?.error?.message ?? "Sidecar dialogue call failed.";
-                return DialogueResult.FromError(err);
+                    var err = envelope?.error?.message ?? "Sidecar dialogue call failed.";
+                    DialogueTelemetry.Log("PythonDialogueFail", err + " | falling back to direct Ollama call.");
+                }
+                catch (System.Exception ex)
+                {
+                    DialogueTelemetry.Log("PythonDialogueException", ex.Message + " | falling back to direct Ollama call.");
+                }
             }
             var messages = _promptComposer.BuildMessages(
                 _activeNpc,
@@ -1957,6 +2006,150 @@ namespace Rpg.Dialogue
                 overlay.ShowBookNarration(output);
             else
                 AppendGuideNavigationSystem(output);
+        }
+
+        void QueueDialogueSpeech(string text, string speakerRole)
+        {
+            if (_ollamaSettings == null || !_ollamaSettings.useTtsSynthesis || _pythonClient == null || _dialogueSpeechPlayer == null)
+                return;
+            var cleaned = (text ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(cleaned))
+                return;
+            if (_ollamaSettings.ttsMaxCharacters > 0 && cleaned.Length > _ollamaSettings.ttsMaxCharacters)
+                cleaned = cleaned.Substring(0, _ollamaSettings.ttsMaxCharacters);
+
+            _ttsCts?.Cancel();
+            _ttsCts?.Dispose();
+            _ttsCts = new CancellationTokenSource();
+            _ = RequestDialogueSpeechAsync(cleaned, speakerRole, _ttsCts.Token);
+        }
+
+        void EmitNpcLineWithSpeech(string uiText, string speechText = null)
+        {
+            if (ui == null || string.IsNullOrWhiteSpace(uiText))
+                return;
+            ui.AppendNpcLine(uiText);
+            QueueDialogueSpeech(string.IsNullOrWhiteSpace(speechText) ? uiText : speechText, "npc");
+        }
+
+        async Task RequestDialogueSpeechAsync(string text, string speakerRole, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var req = new PythonTtsSynthesizeRequestDto
+                {
+                    requestId = Guid.NewGuid().ToString("N"),
+                    text = text,
+                    voiceId = ResolveDialogueVoiceId(speakerRole),
+                    language = string.IsNullOrWhiteSpace(_ollamaSettings.ttsLanguage) ? "english" : _ollamaSettings.ttsLanguage.Trim(),
+                    quantize = true,
+                    speakerRole = string.Equals(speakerRole, "hero", StringComparison.OrdinalIgnoreCase) ? "hero" : "npc"
+                };
+                var envelope = await _pythonClient.TtsSynthesizeAsync(req, cancellationToken);
+                if (cancellationToken.IsCancellationRequested || envelope == null || !envelope.ok || envelope.tts == null)
+                    return;
+                if (string.IsNullOrWhiteSpace(envelope.tts.audioBase64))
+                    return;
+
+                byte[] wavBytes;
+                try
+                {
+                    wavBytes = Convert.FromBase64String(envelope.tts.audioBase64);
+                }
+                catch (FormatException)
+                {
+                    return;
+                }
+
+                RunUi(() =>
+                {
+                    if (_dialogueSpeechPlayer == null)
+                        return;
+                    var clipName = $"dialogue_tts_{req.speakerRole}";
+                    _dialogueSpeechPlayer.TryPlayWavBytes(wavBytes, clipName);
+                });
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[DialogueTTS] {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        string ResolveDialogueVoiceId(string speakerRole)
+        {
+            if (string.Equals(speakerRole, "hero", StringComparison.OrdinalIgnoreCase))
+                return ResolveOrAssignHeroVoiceId();
+            if (_activeNpc != null && !string.IsNullOrWhiteSpace(_activeNpc.npcId))
+                return EnsureNpcVoiceAssigned(_activeNpc.npcId);
+            return ResolveOrAssignHeroVoiceId();
+        }
+
+        void CancelDialogueSpeech()
+        {
+            _ttsCts?.Cancel();
+            _ttsCts?.Dispose();
+            _ttsCts = null;
+            _dialogueSpeechPlayer?.Stop();
+        }
+
+        void WarmupTtsInBackground()
+        {
+            if (_ollamaSettings == null || !_ollamaSettings.useTtsSynthesis || _pythonClient == null)
+                return;
+            _ = RequestTtsWarmupAsync();
+        }
+
+        async Task RequestTtsWarmupAsync()
+        {
+            try
+            {
+                var warmup = new PythonTtsSynthesizeRequestDto
+                {
+                    requestId = Guid.NewGuid().ToString("N"),
+                    text = "Warmup.",
+                    voiceId = ResolveOrAssignHeroVoiceId(),
+                    language = string.IsNullOrWhiteSpace(_ollamaSettings.ttsLanguage) ? "english" : _ollamaSettings.ttsLanguage.Trim(),
+                    quantize = true,
+                    speakerRole = "system"
+                };
+                var envelope = await _pythonClient.TtsSynthesizeAsync(warmup, CancellationToken.None);
+                if (envelope == null || !envelope.ok)
+                    Debug.LogWarning("[DialogueTTS] Warmup request failed.");
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[DialogueTTS] Warmup exception: {ex.Message}");
+            }
+        }
+
+        string ResolveOrAssignHeroVoiceId()
+        {
+            if (!string.IsNullOrWhiteSpace(_heroVoiceId))
+                return _heroVoiceId;
+            var configured = _ollamaSettings == null || string.IsNullOrWhiteSpace(_ollamaSettings.ttsDefaultVoiceId)
+                ? "alba"
+                : _ollamaSettings.ttsDefaultVoiceId.Trim();
+            if (_voiceAssignments == null)
+            {
+                _heroVoiceId = configured;
+                return _heroVoiceId;
+            }
+
+            _heroVoiceId = _voiceAssignments.GetOrAssignHeroVoice(configured, TtsEnglishVoices);
+            return string.IsNullOrWhiteSpace(_heroVoiceId) ? "alba" : _heroVoiceId;
+        }
+
+        string EnsureNpcVoiceAssigned(string npcId)
+        {
+            if (string.IsNullOrWhiteSpace(npcId))
+                return ResolveOrAssignHeroVoiceId();
+            if (_voiceAssignments == null)
+                return ResolveOrAssignHeroVoiceId();
+            var hero = ResolveOrAssignHeroVoiceId();
+            return _voiceAssignments.GetOrAssignNpcVoice(npcId.Trim(), hero, TtsEnglishVoices);
         }
 
         void RefreshWorldInventoryVisuals()
