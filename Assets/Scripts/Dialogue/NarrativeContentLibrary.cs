@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using UnityEngine;
 
 namespace Rpg.Dialogue
@@ -15,8 +17,48 @@ namespace Rpg.Dialogue
             _root = Path.Combine(sa, "Dialogue");
         }
 
-        public GlobalKnowledgeDoc LoadGlobalKnowledge() =>
-            LoadJson<GlobalKnowledgeDoc>("world/global_knowledge.json") ?? new GlobalKnowledgeDoc();
+        public GlobalKnowledgeDoc LoadGlobalKnowledge()
+        {
+            var relativePath = "world/global_knowledge.json";
+            var p = Path.Combine(_root, relativePath.Replace('/', Path.DirectorySeparatorChar));
+            if (!File.Exists(p))
+            {
+                Debug.LogWarning($"[NarrativeContentLibrary] Missing content file: {p}");
+                return new GlobalKnowledgeDoc();
+            }
+
+            try
+            {
+                var json = File.ReadAllText(p);
+                var token = JToken.Parse(json);
+                if (token.Type == JTokenType.Object)
+                    return token.ToObject<GlobalKnowledgeDoc>() ?? new GlobalKnowledgeDoc();
+
+                if (token.Type == JTokenType.Array)
+                {
+                    var docs = token.ToObject<List<GlobalKnowledgeDoc>>();
+                    if (docs != null)
+                    {
+                        for (var i = 0; i < docs.Count; i++)
+                        {
+                            if (docs[i] != null)
+                                return docs[i];
+                        }
+                    }
+
+                    Debug.LogWarning($"[NarrativeContentLibrary] Parsed {p} as array but found no valid world entries.");
+                    return new GlobalKnowledgeDoc();
+                }
+
+                Debug.LogWarning($"[NarrativeContentLibrary] Unexpected JSON root in {p}: {token.Type}");
+                return new GlobalKnowledgeDoc();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[NarrativeContentLibrary] Failed to parse {p}: {ex.Message}");
+                return new GlobalKnowledgeDoc();
+            }
+        }
 
         public IntroPremiseLibraryDoc LoadIntroPremises() =>
             LoadJson<IntroPremiseLibraryDoc>("world/game_intro_library.json") ?? new IntroPremiseLibraryDoc();

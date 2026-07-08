@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 using UnityEngine;
@@ -14,14 +13,14 @@ namespace Rpg.Dialogue
     public sealed class NpcDialogueTranscriptRepository
     {
         const int SchemaVersion = 1;
-        readonly object _fileLock = new object();
-        readonly string _rootDir;
+        readonly JsonFileStore _store;
 
         public NpcDialogueTranscriptRepository(string rootDirectory = null)
         {
-            _rootDir = string.IsNullOrEmpty(rootDirectory)
-                ? Path.Combine(Application.persistentDataPath, "RpgNpcDialogue")
+            var rootDir = string.IsNullOrEmpty(rootDirectory)
+                ? System.IO.Path.Combine(Application.persistentDataPath, "RpgNpcDialogue")
                 : rootDirectory;
+            _store = new JsonFileStore(rootDir, "NpcDialogueTranscriptRepository");
         }
 
         /// <summary>
@@ -30,28 +29,9 @@ namespace Rpg.Dialogue
         public static void ClearAllForNewPlaySession(string rootDirectory = null)
         {
             var dir = string.IsNullOrEmpty(rootDirectory)
-                ? Path.Combine(Application.persistentDataPath, "RpgNpcDialogue")
+                ? System.IO.Path.Combine(Application.persistentDataPath, "RpgNpcDialogue")
                 : rootDirectory;
-            try
-            {
-                if (!Directory.Exists(dir))
-                    return;
-                foreach (var path in Directory.GetFiles(dir, "*.json", SearchOption.TopDirectoryOnly))
-                {
-                    try
-                    {
-                        File.Delete(path);
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.LogWarning($"[NpcDialogueTranscriptRepository] Could not delete '{path}': {ex.Message}");
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[NpcDialogueTranscriptRepository] Could not clear transcript directory '{dir}': {ex.Message}");
-            }
+            JsonFileStore.ClearAllJsonFiles(dir, "NpcDialogueTranscriptRepository");
         }
 
         public List<OllamaMessageDto> TryLoad(string npcId) => LoadSnapshot(npcId).Messages;
@@ -61,40 +41,21 @@ namespace Rpg.Dialogue
             if (string.IsNullOrWhiteSpace(npcId))
                 npcId = "npc_unknown";
 
-            lock (_fileLock)
+            var doc = _store.Load(npcId, () => new NpcDialogueTranscriptDocument(), NormalizeDocument);
+            var messages = doc.Messages == null
+                ? new List<OllamaMessageDto>()
+                : doc.Messages
+                    .Where(m => m != null && !string.IsNullOrWhiteSpace(m.role))
+                    .Select(m => new OllamaMessageDto(m.role.Trim(), m.content ?? string.Empty))
+                    .ToList();
+
+            return new NpcTranscriptSnapshot
             {
-                var path = FilePathFor(npcId);
-                if (!File.Exists(path))
-                    return new NpcTranscriptSnapshot();
-
-                try
-                {
-                    var json = File.ReadAllText(path);
-                    var doc = JsonConvert.DeserializeObject<NpcDialogueTranscriptDocument>(json);
-                    if (doc == null)
-                        return new NpcTranscriptSnapshot();
-
-                    var messages = doc.Messages == null
-                        ? new List<OllamaMessageDto>()
-                        : doc.Messages
-                            .Where(m => m != null && !string.IsNullOrWhiteSpace(m.role))
-                            .Select(m => new OllamaMessageDto(m.role.Trim(), m.content ?? string.Empty))
-                            .ToList();
-
-                    return new NpcTranscriptSnapshot
-                    {
-                        Messages = messages,
-                        LastConversationEndedUtc = doc.LastConversationEndedUtc,
-                        LastConversationEndedGameplayTime = doc.LastConversationEndedGameplayTime,
-                        DialoguePlayInstanceId = doc.DialoguePlayInstanceId
-                    };
-                }
-                catch (Exception ex)
-                {
-                    Debug.LogWarning($"[NpcDialogueTranscriptRepository] Failed to load {path}: {ex.Message}");
-                    return new NpcTranscriptSnapshot();
-                }
-            }
+                Messages = messages,
+                LastConversationEndedUtc = doc.LastConversationEndedUtc,
+                LastConversationEndedGameplayTime = doc.LastConversationEndedGameplayTime,
+                DialoguePlayInstanceId = doc.DialoguePlayInstanceId
+            };
         }
 
         /// <summary>
@@ -105,30 +66,11 @@ namespace Rpg.Dialogue
             if (string.IsNullOrWhiteSpace(npcId))
                 npcId = "npc_unknown";
 
-            lock (_fileLock)
-            {
-                try
+            _store.Update(
+                npcId,
+                () => new NpcDialogueTranscriptDocument(),
+                doc =>
                 {
-                    Directory.CreateDirectory(_rootDir);
-                    var path = FilePathFor(npcId);
-                    NpcDialogueTranscriptDocument doc;
-                    if (File.Exists(path))
-                    {
-                        try
-                        {
-                            doc = JsonConvert.DeserializeObject<NpcDialogueTranscriptDocument>(File.ReadAllText(path))
-                                  ?? new NpcDialogueTranscriptDocument();
-                        }
-                        catch
-                        {
-                            doc = new NpcDialogueTranscriptDocument();
-                        }
-                    }
-                    else
-                    {
-                        doc = new NpcDialogueTranscriptDocument();
-                    }
-
                     doc.SchemaVersion = SchemaVersion;
                     doc.NpcId = npcId;
                     doc.Messages = messages == null
@@ -141,28 +83,19 @@ namespace Rpg.Dialogue
                         doc.LastConversationEndedGameplayTime = Time.time;
                         doc.DialoguePlayInstanceId = DialogueRuntimeSession.PlayInstanceId;
                     }
-
-                    File.WriteAllText(path, JsonConvert.SerializeObject(doc, Formatting.Indented));
-                }
-                catch (Exception ex)
-                {
-                    Debug.LogWarning($"[NpcDialogueTranscriptRepository] Failed to save transcript for '{npcId}': {ex.Message}");
-                }
-            }
+                    return doc;
+                },
+                NormalizeDocument,
+                NormalizeDocument);
         }
 
-        string FilePathFor(string npcId)
+        static void NormalizeDocument(NpcDialogueTranscriptDocument doc)
         {
-            var safe = SanitizeFileName(npcId);
-            return Path.Combine(_rootDir, $"{safe}.json");
-        }
-
-        static string SanitizeFileName(string npcId)
-        {
-            var s = npcId.Trim();
-            foreach (var c in Path.GetInvalidFileNameChars())
-                s = s.Replace(c, '_');
-            return string.IsNullOrEmpty(s) ? "npc_unknown" : s;
+            if (doc == null)
+                return;
+            doc.Messages ??= new List<OllamaMessageDto>();
+            if (doc.SchemaVersion <= 0)
+                doc.SchemaVersion = SchemaVersion;
         }
     }
 
