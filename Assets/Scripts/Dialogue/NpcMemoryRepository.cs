@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Text;
 using Newtonsoft.Json;
@@ -16,9 +15,7 @@ namespace Rpg.Dialogue
     {
         const int SchemaVersion = 1;
         const int MaxMemoriesPerSubject = 100;
-        readonly object _fileLock = new object();
-
-        readonly string _rootDir;
+        readonly JsonFileStore _store;
 
         /// <summary>
         /// Deletes all saved NPC memory JSON for this install path. Call when a new play session starts so memories
@@ -27,35 +24,17 @@ namespace Rpg.Dialogue
         public static void ClearAllForNewPlaySession(string rootDirectory = null)
         {
             var dir = string.IsNullOrEmpty(rootDirectory)
-                ? Path.Combine(Application.persistentDataPath, "RpgNpcMemory")
+                ? System.IO.Path.Combine(Application.persistentDataPath, "RpgNpcMemory")
                 : rootDirectory;
-            try
-            {
-                if (!Directory.Exists(dir))
-                    return;
-                foreach (var path in Directory.GetFiles(dir, "*.json", SearchOption.TopDirectoryOnly))
-                {
-                    try
-                    {
-                        File.Delete(path);
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.LogWarning($"[NpcMemoryRepository] Could not delete '{path}': {ex.Message}");
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[NpcMemoryRepository] Could not clear memory directory '{dir}': {ex.Message}");
-            }
+            JsonFileStore.ClearAllJsonFiles(dir, "NpcMemoryRepository");
         }
 
         public NpcMemoryRepository(string rootDirectory = null)
         {
-            _rootDir = string.IsNullOrEmpty(rootDirectory)
-                ? Path.Combine(Application.persistentDataPath, "RpgNpcMemory")
+            var rootDir = string.IsNullOrEmpty(rootDirectory)
+                ? System.IO.Path.Combine(Application.persistentDataPath, "RpgNpcMemory")
                 : rootDirectory;
+            _store = new JsonFileStore(rootDir, "NpcMemoryRepository");
         }
 
         /// <summary>Human-readable block injected into the system prompt.</summary>
@@ -64,40 +43,37 @@ namespace Rpg.Dialogue
             if (string.IsNullOrWhiteSpace(npcId))
                 npcId = "npc_unknown";
 
-            lock (_fileLock)
+            var doc = LoadDocument(npcId);
+            if (doc.Subjects == null || doc.Subjects.Count == 0)
+                return "(No remembered facts yet.)";
+
+            var sb = new StringBuilder();
+            foreach (var subj in doc.Subjects)
             {
-                var doc = LoadDocumentUnlocked(npcId);
-                if (doc.Subjects == null || doc.Subjects.Count == 0)
-                    return "(No remembered facts yet.)";
+                if (subj == null || string.IsNullOrWhiteSpace(subj.CharacterId))
+                    continue;
+                var id = subj.CharacterId.Trim();
+                var label = string.IsNullOrWhiteSpace(subj.DisplayLabel) ? id : subj.DisplayLabel.Trim();
+                var memories = subj.Memories;
+                if (memories == null || memories.Count == 0)
+                    continue;
 
-                var sb = new StringBuilder();
-                foreach (var subj in doc.Subjects)
+                sb.AppendLine($"— Regarding character \"{label}\" (id: {id}):");
+                foreach (var m in memories.OrderByDescending(x => x.AddedUtc))
                 {
-                    if (subj == null || string.IsNullOrWhiteSpace(subj.CharacterId))
+                    if (m == null || string.IsNullOrWhiteSpace(m.Summary))
                         continue;
-                    var id = subj.CharacterId.Trim();
-                    var label = string.IsNullOrWhiteSpace(subj.DisplayLabel) ? id : subj.DisplayLabel.Trim();
-                    var memories = subj.Memories;
-                    if (memories == null || memories.Count == 0)
-                        continue;
-
-                    sb.AppendLine($"— Regarding character \"{label}\" (id: {id}):");
-                    foreach (var m in memories.OrderByDescending(x => x.AddedUtc))
-                    {
-                        if (m == null || string.IsNullOrWhiteSpace(m.Summary))
-                            continue;
-                        var k = string.IsNullOrWhiteSpace(m.Kind) ? "note" : m.Kind.Trim();
-                        sb.AppendLine($"  • [{k}] {m.Summary.Trim()}");
-                    }
-
-                    sb.AppendLine();
+                    var k = string.IsNullOrWhiteSpace(m.Kind) ? "note" : m.Kind.Trim();
+                    sb.AppendLine($"  • [{k}] {m.Summary.Trim()}");
                 }
 
-                if (sb.Length == 0)
-                    return "(No remembered facts yet.)";
-
-                return sb.ToString().TrimEnd();
+                sb.AppendLine();
             }
+
+            if (sb.Length == 0)
+                return "(No remembered facts yet.)";
+
+            return sb.ToString().TrimEnd();
         }
 
         /// <summary>Append new memories after a validated model turn. Skips near-duplicates for the same subject.</summary>
@@ -108,44 +84,62 @@ namespace Rpg.Dialogue
             if (string.IsNullOrWhiteSpace(npcId))
                 npcId = "npc_unknown";
 
-            lock (_fileLock)
-            {
-                var doc = LoadDocumentUnlocked(npcId);
-                doc.NpcId = npcId;
-                doc.SchemaVersion = SchemaVersion;
-
-                foreach (var c in candidates)
+            _store.Update(
+                npcId,
+                () => NewDocument(npcId),
+                doc =>
                 {
-                    if (string.IsNullOrWhiteSpace(c.Summary))
-                        continue;
-                    var subject = string.IsNullOrWhiteSpace(c.SubjectCharacterId) ? "player" : c.SubjectCharacterId.Trim();
-                    var kind = string.IsNullOrWhiteSpace(c.Kind) ? "fact" : c.Kind.Trim();
-                    var summary = c.Summary.Trim();
-                    if (summary.Length > 400)
-                        summary = summary.Substring(0, 397) + "…";
+                    doc.NpcId = npcId;
+                    doc.SchemaVersion = SchemaVersion;
 
-                    var slot = GetOrCreateSubject(doc, subject);
-                    var norm = summary.ToLowerInvariant();
-                    if (slot.Memories.Any(m =>
-                            m != null &&
-                            !string.IsNullOrEmpty(m.Summary) &&
-                            m.Summary.Trim().ToLowerInvariant() == norm))
-                        continue;
-
-                    slot.Memories.Add(new NpcMemoryPersistedEntry
+                    foreach (var c in candidates)
                     {
-                        Id = Guid.NewGuid().ToString("N"),
-                        AddedUtc = DateTime.UtcNow.ToString("o"),
-                        Kind = kind,
-                        Summary = summary
-                    });
+                        if (string.IsNullOrWhiteSpace(c.Summary))
+                            continue;
+                        var subject = string.IsNullOrWhiteSpace(c.SubjectCharacterId) ? "player" : c.SubjectCharacterId.Trim();
+                        var kind = string.IsNullOrWhiteSpace(c.Kind) ? "fact" : c.Kind.Trim();
+                        var summary = c.Summary.Trim();
+                        if (summary.Length > 400)
+                            summary = summary.Substring(0, 397) + "…";
 
-                    while (slot.Memories.Count > MaxMemoriesPerSubject)
-                        slot.Memories.RemoveAt(0);
-                }
+                        var slot = GetOrCreateSubject(doc, subject);
+                        var norm = summary.ToLowerInvariant();
+                        if (slot.Memories.Any(m =>
+                                m != null &&
+                                !string.IsNullOrEmpty(m.Summary) &&
+                                m.Summary.Trim().ToLowerInvariant() == norm))
+                            continue;
 
-                SaveDocumentUnlocked(npcId, doc);
-            }
+                        slot.Memories.Add(new NpcMemoryPersistedEntry
+                        {
+                            Id = Guid.NewGuid().ToString("N"),
+                            AddedUtc = DateTime.UtcNow.ToString("o"),
+                            Kind = kind,
+                            Summary = summary
+                        });
+
+                        while (slot.Memories.Count > MaxMemoriesPerSubject)
+                            slot.Memories.RemoveAt(0);
+                    }
+                    return doc;
+                },
+                NormalizeDocument,
+                NormalizeDocument);
+        }
+
+        NpcMemoryDocument LoadDocument(string npcId)
+        {
+            return _store.Load(npcId, () => NewDocument(npcId), NormalizeDocument);
+        }
+
+        static NpcMemoryDocument NewDocument(string npcId)
+        {
+            return new NpcMemoryDocument
+            {
+                SchemaVersion = SchemaVersion,
+                NpcId = npcId,
+                Subjects = new List<NpcMemorySubjectSlot>()
+            };
         }
 
         NpcMemorySubjectSlot GetOrCreateSubject(NpcMemoryDocument doc, string characterId)
@@ -167,56 +161,13 @@ namespace Rpg.Dialogue
             return created;
         }
 
-        NpcMemoryDocument LoadDocumentUnlocked(string npcId)
+        static void NormalizeDocument(NpcMemoryDocument doc)
         {
-            var path = FilePathFor(npcId);
-            if (!File.Exists(path))
-                return new NpcMemoryDocument { SchemaVersion = SchemaVersion, NpcId = npcId, Subjects = new List<NpcMemorySubjectSlot>() };
-
-            try
-            {
-                var json = File.ReadAllText(path);
-                var doc = JsonConvert.DeserializeObject<NpcMemoryDocument>(json);
-                if (doc == null)
-                    return new NpcMemoryDocument { SchemaVersion = SchemaVersion, NpcId = npcId, Subjects = new List<NpcMemorySubjectSlot>() };
-                doc.Subjects ??= new List<NpcMemorySubjectSlot>();
-                doc.NpcId = npcId;
-                return doc;
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[NpcMemoryRepository] Failed to load {path}: {ex.Message}");
-                return new NpcMemoryDocument { SchemaVersion = SchemaVersion, NpcId = npcId, Subjects = new List<NpcMemorySubjectSlot>() };
-            }
-        }
-
-        void SaveDocumentUnlocked(string npcId, NpcMemoryDocument doc)
-        {
-            try
-            {
-                Directory.CreateDirectory(_rootDir);
-                var path = FilePathFor(npcId);
-                var json = JsonConvert.SerializeObject(doc, Formatting.Indented);
-                File.WriteAllText(path, json);
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[NpcMemoryRepository] Failed to save memory for '{npcId}': {ex.Message}");
-            }
-        }
-
-        string FilePathFor(string npcId)
-        {
-            var safe = SanitizeFileName(npcId);
-            return Path.Combine(_rootDir, $"{safe}.json");
-        }
-
-        static string SanitizeFileName(string npcId)
-        {
-            var s = npcId.Trim();
-            foreach (var c in Path.GetInvalidFileNameChars())
-                s = s.Replace(c, '_');
-            return string.IsNullOrEmpty(s) ? "npc_unknown" : s;
+            if (doc == null)
+                return;
+            doc.Subjects ??= new List<NpcMemorySubjectSlot>();
+            if (doc.SchemaVersion <= 0)
+                doc.SchemaVersion = SchemaVersion;
         }
     }
 

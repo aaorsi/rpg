@@ -1,7 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
-using Newtonsoft.Json;
 using Rpg.Npc;
 using UnityEngine;
 
@@ -14,14 +12,14 @@ namespace Rpg.Dialogue
     public sealed class NpcPersonaRepository
     {
         const int SchemaVersion = 1;
-        readonly object _fileLock = new object();
-        readonly string _rootDir;
+        readonly JsonFileStore _store;
 
         public NpcPersonaRepository(string rootDirectory = null)
         {
-            _rootDir = string.IsNullOrWhiteSpace(rootDirectory)
-                ? Path.Combine(Application.persistentDataPath, "RpgNpcPersonas")
+            var rootDir = string.IsNullOrWhiteSpace(rootDirectory)
+                ? System.IO.Path.Combine(Application.persistentDataPath, "RpgNpcPersonas")
                 : rootDirectory;
+            _store = new JsonFileStore(rootDir, "NpcPersonaRepository");
         }
 
         public NpcPersona Load(string npcId)
@@ -29,10 +27,7 @@ namespace Rpg.Dialogue
             if (string.IsNullOrWhiteSpace(npcId))
                 npcId = "npc_unknown";
 
-            lock (_fileLock)
-            {
-                return LoadUnlocked(npcId);
-            }
+            return _store.Load<NpcPersona>(npcId, () => null, persona => NormalizePersona(persona, npcId, null));
         }
 
         public NpcPersona LoadOrCreate(NpcDefinition definition, string npcType = "normal")
@@ -41,16 +36,26 @@ namespace Rpg.Dialogue
                 return null;
 
             var npcId = string.IsNullOrWhiteSpace(definition.npcId) ? "npc_unknown" : definition.npcId.Trim();
-            lock (_fileLock)
-            {
-                var loaded = LoadUnlocked(npcId);
-                if (loaded != null)
-                    return NormalizePersona(loaded, npcId, npcType);
+            NpcPersona result = null;
+            _store.Update<NpcPersona>(
+                npcId,
+                () => null,
+                persona =>
+                {
+                    if (persona != null)
+                    {
+                        result = NormalizePersona(persona, npcId, npcType);
+                        return result;
+                    }
 
-                var created = BuildFallback(definition, npcType);
-                SaveUnlocked(created);
-                return created;
-            }
+                    var created = BuildFallback(definition, npcType);
+                    result = NormalizePersona(created, npcId, npcType);
+                    return result;
+                },
+                persona => NormalizePersona(persona, npcId, npcType),
+                persona => NormalizePersona(persona, npcId, npcType));
+
+            return result;
         }
 
         public void Save(NpcPersona persona)
@@ -58,48 +63,7 @@ namespace Rpg.Dialogue
             if (persona == null || string.IsNullOrWhiteSpace(persona.npcId))
                 return;
 
-            lock (_fileLock)
-            {
-                SaveUnlocked(persona);
-            }
-        }
-
-        NpcPersona LoadUnlocked(string npcId)
-        {
-            var path = FilePathFor(npcId);
-            if (!File.Exists(path))
-                return null;
-
-            try
-            {
-                var json = File.ReadAllText(path);
-                var persona = JsonConvert.DeserializeObject<NpcPersona>(json);
-                return persona == null ? null : NormalizePersona(persona, npcId, null);
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[NpcPersonaRepository] Failed to load '{path}': {ex.Message}");
-                return null;
-            }
-        }
-
-        void SaveUnlocked(NpcPersona persona)
-        {
-            try
-            {
-                if (persona == null || string.IsNullOrWhiteSpace(persona.npcId))
-                    return;
-
-                persona = NormalizePersona(persona, persona.npcId, null);
-                Directory.CreateDirectory(_rootDir);
-                var path = FilePathFor(persona.npcId);
-                var json = JsonConvert.SerializeObject(persona, Formatting.Indented);
-                File.WriteAllText(path, json);
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[NpcPersonaRepository] Failed to save persona for '{persona?.npcId}': {ex.Message}");
-            }
+            _store.Save(persona.npcId, NormalizePersona(persona, persona.npcId, null));
         }
 
         NpcPersona NormalizePersona(NpcPersona persona, string npcId, string npcTypeHint)
@@ -199,18 +163,5 @@ namespace Rpg.Dialogue
             return $"persona_{safeNpcId.Replace(' ', '_')}";
         }
 
-        string FilePathFor(string npcId)
-        {
-            var safe = SanitizeFileName(npcId);
-            return Path.Combine(_rootDir, $"{safe}.json");
-        }
-
-        static string SanitizeFileName(string value)
-        {
-            var safe = string.IsNullOrWhiteSpace(value) ? "npc_unknown" : value.Trim();
-            foreach (var c in Path.GetInvalidFileNameChars())
-                safe = safe.Replace(c, '_');
-            return safe;
-        }
     }
 }

@@ -1,6 +1,7 @@
 using NUnit.Framework;
 using Rpg.Npc;
 using System;
+using System.Collections.Generic;
 using System.IO;
 
 namespace Rpg.Npc.Tests.EditMode
@@ -8,10 +9,39 @@ namespace Rpg.Npc.Tests.EditMode
     [TestFixture]
     public sealed class VillageOpinionServiceTests
     {
+        readonly List<string> _tempAskStatePaths = new List<string>();
+
+        [TearDown]
+        public void TearDown()
+        {
+            for (var i = 0; i < _tempAskStatePaths.Count; i++)
+            {
+                var path = _tempAskStatePaths[i];
+                try
+                {
+                    if (File.Exists(path))
+                        File.Delete(path);
+                }
+                catch
+                {
+                    // Best-effort cleanup for test temp files.
+                }
+            }
+
+            _tempAskStatePaths.Clear();
+        }
+
+        VillageOpinionService NewService()
+        {
+            var path = Path.Combine(Path.GetTempPath(), $"village_asks_{Guid.NewGuid():N}.json");
+            _tempAskStatePaths.Add(path);
+            return new VillageOpinionService(path);
+        }
+
         [Test]
         public void ApplyHeroImpact_UpdatesNpcOpinionAndAggregateTracks()
         {
-            var service = new VillageOpinionService();
+            var service = NewService();
             service.SetParticipants(new[] { "villager_a", "villager_b" });
 
             service.ApplyHeroImpact("villager_a", 20f, 10f, -5f, 4f, 14f);
@@ -27,7 +57,7 @@ namespace Rpg.Npc.Tests.EditMode
         [Test]
         public void ApplyHeroImpact_ClampsValuesWithinConfiguredBounds()
         {
-            var service = new VillageOpinionService();
+            var service = NewService();
             service.SetParticipants(new[] { "villager_a" });
 
             service.ApplyHeroImpact("villager_a", 250f, 125f, -190f, 130f, -160f);
@@ -48,7 +78,7 @@ namespace Rpg.Npc.Tests.EditMode
         [Test]
         public void ProcessGossip_RespectsBudgetAndPropagatesSentiment()
         {
-            var service = new VillageOpinionService();
+            var service = NewService();
             service.SetParticipants(new[] { "villager_a", "villager_b", "villager_c" });
             service.ApplyHeroImpact("villager_a", 80f, 40f, 0f, 0f, 0f);
             service.ApplyHeroImpact("villager_b", -40f, -20f, 0f, 0f, 0f);
@@ -71,13 +101,14 @@ namespace Rpg.Npc.Tests.EditMode
             Assert.AreEqual(0, service.PendingGossipCount);
 
             var cAfterSecond = service.GetSummary("villager_c").OpinionTowardHero;
-            Assert.Greater(cAfterSecond, 0f);
+            Assert.Less(cAfterSecond, 0f);
+            Assert.Greater(cAfterSecond, -40f);
         }
 
         [Test]
         public void QueueInteraction_DeduplicatesPairsUntilProcessed()
         {
-            var service = new VillageOpinionService();
+            var service = NewService();
             service.SetParticipants(new[] { "villager_a", "villager_b", "villager_c" });
 
             service.QueueInteraction("villager_a", "villager_b");
@@ -95,7 +126,7 @@ namespace Rpg.Npc.Tests.EditMode
         [Test]
         public void BuildDeliberationContext_ReportsSignedTracksAndPendingCount()
         {
-            var service = new VillageOpinionService();
+            var service = NewService();
             service.SetParticipants(new[] { "villager_a", "villager_b" });
             service.ApplyHeroImpact("villager_a", 12f, 8f, -4f, 2f, 0f);
             service.ApplyHeroImpact("villager_b", -2f, 0f, 6f, -2f, 2f);
@@ -113,7 +144,7 @@ namespace Rpg.Npc.Tests.EditMode
         [Test]
         public void GroupAsks_TriggerFromThresholds_AndAppearInDeliberationContext()
         {
-            var service = new VillageOpinionService();
+            var service = NewService();
             service.SetParticipants(new[] { "villager_a", "villager_b" });
 
             service.ApplyHeroImpact("villager_a", 0f, 90f, 0f, 0f, 40f);
