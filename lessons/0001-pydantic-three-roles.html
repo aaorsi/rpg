@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lesson 1 — Pydantic's three roles in this codebase</title>
+  <style>
+    :root {
+      --text: #1a1a1a;
+      --muted: #555;
+      --accent: #8b4513;
+      --bg: #faf9f7;
+      --card: #fff;
+      --rule: #ddd;
+      --correct: #2d6a4f;
+      --wrong: #9b2226;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Palatino Linotype", Palatino, Georgia, serif;
+      font-size: 18px;
+      line-height: 1.6;
+      color: var(--text);
+      background: var(--bg);
+      max-width: 40rem;
+      margin: 2rem auto;
+      padding: 0 1.5rem 4rem;
+    }
+    h1 { font-size: 1.85rem; font-weight: 600; line-height: 1.25; }
+    .meta { color: var(--muted); font-style: italic; margin-bottom: 2rem; }
+    h2 { font-size: 1.15rem; margin-top: 2.2rem; }
+    .flow {
+      background: var(--card);
+      border: 1px solid var(--rule);
+      padding: 1.2rem 1.4rem;
+      font-family: "SF Mono", Menlo, monospace;
+      font-size: 0.82rem;
+      line-height: 1.7;
+      white-space: pre;
+      overflow-x: auto;
+      margin: 1.2rem 0;
+    }
+    .role {
+      background: var(--card);
+      border-left: 3px solid var(--accent);
+      padding: 0.8rem 1rem;
+      margin: 1rem 0;
+    }
+    .role strong { color: var(--accent); }
+    code { font-family: "SF Mono", Menlo, monospace; font-size: 0.88em; background: #eee; padding: 0.1em 0.35em; border-radius: 3px; }
+    .quiz { background: var(--card); border: 1px solid var(--rule); padding: 1.2rem 1.4rem; margin-top: 2rem; }
+    .quiz button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      font-family: inherit;
+      font-size: 0.95rem;
+      padding: 0.65rem 0.9rem;
+      margin: 0.5rem 0;
+      border: 1px solid var(--rule);
+      background: #f5f5f5;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    .quiz button:hover { background: #ebebeb; }
+    .quiz button.correct { border-color: var(--correct); background: #d8f3dc; }
+    .quiz button.wrong { border-color: var(--wrong); background: #ffe5e5; }
+    #feedback { margin-top: 0.8rem; font-size: 0.95rem; min-height: 1.5em; }
+    .cite { font-size: 0.9rem; color: var(--muted); margin-top: 2rem; }
+    .reminder {
+      margin-top: 2rem;
+      padding: 1rem;
+      background: #f0ebe3;
+      border-radius: 4px;
+      font-size: 0.95rem;
+    }
+    a { color: var(--accent); }
+    footer { margin-top: 2.5rem; font-size: 0.85rem; color: var(--muted); }
+  </style>
+</head>
+<body>
+
+  <h1>Pydantic's three roles in this codebase</h1>
+  <p class="meta">Lesson 0001 · tied to <a href="../MISSION.md">Mission: Pydantic in the RPG policy orchestrator</a></p>
+
+  <p>In <code>services/policy_orchestrator</code>, Pydantic is not decorative typing — it is the <strong>contract layer</strong> between Unity, the sidecar, and Ollama. Every dialogue turn passes through it three times.</p>
+
+  <h2>The pipeline (one dialogue turn)</h2>
+  <div class="flow">Unity POST /v1/dialogue/turn  (camelCase JSON)
+        ↓
+FastAPI → DialogueTurnRequest.model_validate()   ← Role 1: guard inputs
+        ↓
+Ollama returns messy text (fences, synonyms)
+        ↓
+dialogue_parsing.parse_dialogue_output()         ← tolerant pre-parse
+        ↓
+LlmDialogueOutput.model_validate()               ← Role 2: enforce LLM shape
+        ↓
+PolicyEnvelope(ok=True, dialogue=…)              ← Role 3: uniform response
+        ↓
+Unity reads camelCase JSON</div>
+
+  <h2>Role 1 — Guard what Unity sends in</h2>
+  <div class="role">
+    <strong>StrictCamelModel</strong> on request types like <code>DialogueTurnRequest</code>.<br>
+    Python field names are <code>snake_case</code>; wire JSON is <code>camelCase</code> via <code>alias_generator=to_camel</code>.<br>
+    <code>extra="forbid"</code> means a typo like <code>bogusField</code> fails immediately — see <code>tests/test_models.py</code>.
+  </div>
+
+  <h2>Role 2 — Enforce what the LLM must emit</h2>
+  <div class="role">
+    <strong>LlmDialogueOutput</strong> in <code>app/models.py</code> is the <em>single source of truth</em> for dialogue turn JSON shape.<br>
+    The LLM is unreliable, so <code>dialogue_parsing.py</code> coerces messy output into a clean dict <em>first</em>, then <code>model_validate</code> enforces types and required fields (<code>say</code> is mandatory).<br>
+    Same pattern for narrative: <code>SessionNarrativeCanon.model_validate(canon)</code> in <code>orchestrator.py</code>.
+  </div>
+
+  <h2>Role 3 — Generate schemas Unity can trust</h2>
+  <div class="role">
+    <code>schema_export.py</code> calls <code>LlmDialogueOutput.model_json_schema(by_alias=True)</code> and writes to<br>
+    <code>Assets/StreamingAssets/Dialogue/schema/dialogue_turn_result.schema.json</code>.<br>
+    Regenerate with <code>python scripts/generate_schemas.py</code>.<br>
+    <code>test_schema_sync.py</code> fails if committed schemas drift from models — this is your safety net when you add a field.
+  </div>
+
+  <h2>Why two base classes?</h2>
+  <p><code>CamelModel</code> (<code>extra="ignore"</code>) for LLM outputs — models invent extra keys constantly; drop them. <code>StrictCamelModel</code> (<code>extra="forbid"</code>) for Unity requests — your code sent the field; typos should fail loud.</p>
+
+  <div class="quiz">
+    <h2 style="margin-top:0">Retrieval practice</h2>
+    <p>Which file is the <strong>single source of truth</strong> for the dialogue turn JSON shape?</p>
+    <button type="button" data-answer="wrong">Generated JSON schema files in Assets</button>
+    <button type="button" data-answer="wrong">Unity C# code defines all schemas</button>
+    <button type="button" data-answer="correct">Pydantic models in app/models.py</button>
+    <button type="button" data-answer="wrong">LLM prompt template defines JSON shape</button>
+    <div id="feedback"></div>
+  </div>
+
+  <p class="cite">
+    <strong>Primary source:</strong>
+    <a href="https://docs.pydantic.dev/latest/concepts/models/">Pydantic Docs — Models</a>
+    (official reference for <code>model_validate</code> and <code>model_dump</code>).<br>
+    <strong>Codebase anchor:</strong> <code>services/policy_orchestrator/app/models.py</code> lines 16–31 (base classes) and 131–141 (<code>LlmDialogueOutput</code>).
+  </p>
+
+  <div class="reminder">
+    <strong>Stuck or curious?</strong> Ask your agent teacher follow-up questions — e.g. "walk me through adding a field to <code>LlmDialogueOutput</code>" or "what happens if <code>model_validate</code> fails mid-turn?"
+  </div>
+
+  <footer>
+    Next: <a href="../reference/pydantic-glossary.html">Pydantic glossary</a> ·
+    <a href="../RESOURCES.md">Resources</a> ·
+    <a href="../MISSION.md">Mission</a>
+  </footer>
+
+  <script>
+    document.querySelectorAll('.quiz button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const fb = document.getElementById('feedback');
+        document.querySelectorAll('.quiz button').forEach(b => {
+          b.classList.remove('correct', 'wrong');
+          b.disabled = true;
+        });
+        if (btn.dataset.answer === 'correct') {
+          btn.classList.add('correct');
+          fb.innerHTML = '<strong>Correct.</strong> <code>app/models.py</code> defines the shape; <code>*.schema.json</code> files are generated artifacts. Run <code>generate_schemas.py</code> after model changes.';
+        } else {
+          btn.classList.add('wrong');
+          fb.innerHTML = '<strong>Not quite.</strong> Schema JSON and Unity validators follow the models — they do not define them. Re-read Role 3 above.';
+        }
+      });
+    });
+  </script>
+</body>
+</html>
