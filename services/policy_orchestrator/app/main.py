@@ -9,6 +9,7 @@ from fastapi import Depends, FastAPI, Request
 from .models import (
     ConversationSummaryRequest,
     DialogueTurnRequest,
+    InteractionLineRequest,
     NarrativeGenerationRequest,
     NpcDeliberationRequest,
     NpcPersonaGenerationRequest,
@@ -95,6 +96,14 @@ async def npc_deliberate(
     orchestrator: PolicyOrchestrator = Depends(get_orchestrator),
 ) -> PolicyEnvelope:
     return await orchestrator.run_npc_deliberation(request)
+
+
+@app.post("/v1/interaction/line", response_model=PolicyEnvelope)
+async def interaction_line(
+    request: InteractionLineRequest,
+    orchestrator: PolicyOrchestrator = Depends(get_orchestrator),
+) -> PolicyEnvelope:
+    return await orchestrator.run_interaction_line(request)
 
 
 @app.post("/v1/tts/synthesize", response_model=PolicyEnvelope)

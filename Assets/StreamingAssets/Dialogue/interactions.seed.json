@@ -1,0 +1,523 @@
+{
+  "schemaVersion": 1,
+  "atomicActionTypes": [
+    "move_to_location",
+    "move_to_npc",
+    "move_to_hero",
+    "engage_dialogue",
+    "exchange_item",
+    "exchange_coins"
+  ],
+  "interactions": [
+    {
+      "id": "steal",
+      "displayName": "Steal",
+      "goal": "Steal an item from the target, then slip away unnoticed.",
+      "source": "seed",
+      "status": "active",
+      "spawnFromChat": true,
+      "roles": [
+        "initiator",
+        "target"
+      ],
+      "selectionWeight": 0.8,
+      "cooldownMinutes": 30,
+      "phases": {
+        "start": [
+          {
+            "actionType": "move_to_npc",
+            "actorRole": "initiator",
+            "targetRole": "target"
+          },
+          {
+            "actionType": "exchange_item",
+            "actorRole": "target",
+            "targetRole": "initiator",
+            "parameters": {
+              "mode": "steal_random_item",
+              "maxItems": "1"
+            }
+          },
+          {
+            "actionType": "move_to_location",
+            "actorRole": "initiator",
+            "parameters": {
+              "locationRef": "escape_nearby"
+            }
+          }
+        ],
+        "loop": [],
+        "end": []
+      },
+      "outcomes": [
+        {
+          "id": "undetected",
+          "probability": 0.65,
+          "effects": [
+            "target_unaware",
+            "initiator_gain_item"
+          ]
+        },
+        {
+          "id": "detected",
+          "probability": 0.35,
+          "effects": [
+            "target_aware",
+            "relationship_penalty",
+            "possible_retaliation_flag"
+          ]
+        }
+      ],
+      "expiry": {
+        "type": "immediate_end_after_start",
+        "ttlHours": 0
+      }
+    },
+    {
+      "id": "romantic_relationship",
+      "displayName": "Romantic Relationship",
+      "goal": "Build romantic trust with the target through talk and optional gifts.",
+      "source": "seed",
+      "status": "active",
+      "spawnFromChat": true,
+      "roles": [
+        "initiator",
+        "target"
+      ],
+      "selectionWeight": 0.5,
+      "cooldownMinutes": 120,
+      "phases": {
+        "start": [
+          {
+            "actionType": "move_to_npc",
+            "actorRole": "initiator",
+            "targetRole": "target"
+          },
+          {
+            "actionType": "engage_dialogue",
+            "actorRole": "initiator",
+            "targetRole": "target",
+            "parameters": {
+              "topic": "flirt"
+            }
+          }
+        ],
+        "loop": [
+          {
+            "actionType": "engage_dialogue",
+            "actorRole": "initiator",
+            "targetRole": "target",
+            "parameters": {
+              "topic": "bonding"
+            }
+          },
+          {
+            "actionType": "exchange_item",
+            "actorRole": "initiator",
+            "targetRole": "target",
+            "parameters": {
+              "mode": "gift_optional"
+            }
+          }
+        ],
+        "end": []
+      },
+      "outcomes": [
+        {
+          "id": "mutual_bond",
+          "probability": 0.7,
+          "effects": [
+            "relationship_positive",
+            "future_pair_interaction_bonus"
+          ]
+        },
+        {
+          "id": "rejected",
+          "probability": 0.3,
+          "effects": [
+            "relationship_negative_short_term"
+          ]
+        }
+      ],
+      "expiry": {
+        "type": "ttl_hours",
+        "ttlHours": 240
+      }
+    },
+    {
+      "id": "start_cult",
+      "displayName": "Start a Cult",
+      "goal": "Recruit the target into your group through persuasion and optional tithes.",
+      "source": "seed",
+      "status": "active",
+      "spawnFromChat": true,
+      "roles": [
+        "leader",
+        "targetGroup"
+      ],
+      "selectionWeight": 0.2,
+      "cooldownMinutes": 240,
+      "phases": {
+        "start": [
+          {
+            "actionType": "move_to_npc",
+            "actorRole": "leader",
+            "targetRole": "targetGroup"
+          },
+          {
+            "actionType": "engage_dialogue",
+            "actorRole": "leader",
+            "targetRole": "targetGroup",
+            "parameters": {
+              "topic": "recruitment_pitch"
+            }
+          }
+        ],
+        "loop": [
+          {
+            "actionType": "move_to_npc",
+            "actorRole": "targetGroup",
+            "targetRole": "leader",
+            "parameters": {
+              "mode": "some_follow_physically"
+            }
+          },
+          {
+            "actionType": "engage_dialogue",
+            "actorRole": "targetGroup",
+            "targetRole": "leader",
+            "parameters": {
+              "topic": "belief_affirmation"
+            }
+          },
+          {
+            "actionType": "exchange_coins",
+            "actorRole": "targetGroup",
+            "targetRole": "leader",
+            "parameters": {
+              "mode": "optional_tithe_small"
+            }
+          }
+        ],
+        "end": []
+      },
+      "outcomes": [
+        {
+          "id": "cult_forms",
+          "probability": 0.55,
+          "effects": [
+            "leader_influence_up",
+            "follower_tag_applied"
+          ]
+        },
+        {
+          "id": "fails_to_form",
+          "probability": 0.45,
+          "effects": [
+            "leader_reputation_risk"
+          ]
+        }
+      ],
+      "expiry": {
+        "type": "ttl_hours",
+        "ttlHours": 168
+      }
+    },
+    {
+      "id": "bribe",
+      "displayName": "Bribe",
+      "goal": "Pay coins so the target runs an errand: fetch an item from a location and deliver it to you.",
+      "source": "seed",
+      "status": "active",
+      "spawnFromChat": true,
+      "roles": [
+        "initiator",
+        "target"
+      ],
+      "selectionWeight": 0.6,
+      "cooldownMinutes": 60,
+      "phases": {
+        "start": [
+          {
+            "actionType": "move_to_npc",
+            "actorRole": "initiator",
+            "targetRole": "target"
+          },
+          {
+            "actionType": "engage_dialogue",
+            "actorRole": "initiator",
+            "targetRole": "target",
+            "parameters": {
+              "topic": "covert_offer"
+            }
+          },
+          {
+            "actionType": "exchange_coins",
+            "actorRole": "initiator",
+            "targetRole": "target",
+            "parameters": {
+              "mode": "bribe_offer",
+              "amountMode": "contextual"
+            }
+          },
+          {
+            "actionType": "engage_dialogue",
+            "actorRole": "initiator",
+            "targetRole": "target",
+            "parameters": {
+              "topic": "errand_instructions"
+            }
+          }
+        ],
+        "loop": [],
+        "end": []
+      },
+      "outcomes": [
+        {
+          "id": "accepted",
+          "probability": 0.6,
+          "effects": [
+            "target_behavior_bias",
+            "initiator_goal_progress"
+          ]
+        },
+        {
+          "id": "rejected_or_exposed",
+          "probability": 0.4,
+          "effects": [
+            "trust_drop",
+            "possible_gossip_spread"
+          ]
+        }
+      ],
+      "expiry": {
+        "type": "ttl_hours",
+        "ttlHours": 24
+      }
+    },
+    {
+      "id": "offer_services",
+      "displayName": "Offer Services",
+      "goal": "Offer a service, perform it, and collect payment when done.",
+      "source": "seed",
+      "status": "active",
+      "spawnFromChat": true,
+      "roles": [
+        "provider",
+        "client"
+      ],
+      "selectionWeight": 0.7,
+      "cooldownMinutes": 20,
+      "phases": {
+        "start": [
+          {
+            "actionType": "move_to_npc",
+            "actorRole": "provider",
+            "targetRole": "client"
+          },
+          {
+            "actionType": "engage_dialogue",
+            "actorRole": "provider",
+            "targetRole": "client",
+            "parameters": {
+              "topic": "service_offer"
+            }
+          }
+        ],
+        "loop": [
+          {
+            "actionType": "move_to_location",
+            "actorRole": "provider",
+            "parameters": {
+              "locationRef": "service_location"
+            }
+          },
+          {
+            "actionType": "engage_dialogue",
+            "actorRole": "provider",
+            "targetRole": "client",
+            "parameters": {
+              "topic": "service_progress"
+            }
+          }
+        ],
+        "end": [
+          {
+            "actionType": "move_to_npc",
+            "actorRole": "provider",
+            "targetRole": "client"
+          },
+          {
+            "actionType": "exchange_coins",
+            "actorRole": "client",
+            "targetRole": "provider",
+            "parameters": {
+              "amountMode": "agreed_or_contextual"
+            }
+          }
+        ]
+      },
+      "outcomes": [
+        {
+          "id": "completed",
+          "probability": 0.8,
+          "effects": [
+            "provider_reputation_up",
+            "client_goal_progress"
+          ]
+        },
+        {
+          "id": "abandoned",
+          "probability": 0.2,
+          "effects": [
+            "minor_trust_drop"
+          ]
+        }
+      ],
+      "expiry": {
+        "type": "ttl_hours",
+        "ttlHours": 72
+      }
+    },
+    {
+      "id": "elect_mayor",
+      "displayName": "Elect the Hero as Mayor",
+      "goal": "Persuade the target to support electing the traveler as mayor.",
+      "source": "seed",
+      "status": "active",
+      "spawnFromChat": false,
+      "roles": [
+        "convener",
+        "audience"
+      ],
+      "selectionWeight": 0.35,
+      "cooldownMinutes": 90,
+      "phases": {
+        "start": [
+          {
+            "actionType": "move_to_location",
+            "actorRole": "convener",
+            "parameters": {
+              "locationRef": "warehouse"
+            }
+          },
+          {
+            "actionType": "move_to_npc",
+            "actorRole": "convener",
+            "targetRole": "audience"
+          },
+          {
+            "actionType": "engage_dialogue",
+            "actorRole": "convener",
+            "targetRole": "audience",
+            "parameters": {
+              "topic": "mayor_pitch"
+            }
+          }
+        ],
+        "loop": [
+          {
+            "actionType": "engage_dialogue",
+            "actorRole": "audience",
+            "targetRole": "convener",
+            "parameters": {
+              "topic": "mayor_debate"
+            }
+          }
+        ],
+        "end": []
+      },
+      "outcomes": [
+        {
+          "id": "mayor_elected",
+          "probability": 0.55,
+          "effects": [
+            "hero_mayor_support_up"
+          ]
+        },
+        {
+          "id": "no_consensus",
+          "probability": 0.45,
+          "effects": [
+            "mayor_pitch_stalled"
+          ]
+        }
+      ],
+      "expiry": {
+        "type": "ttl_hours",
+        "ttlHours": 48
+      }
+    },
+    {
+      "id": "cult_conversion",
+      "displayName": "Cult Conversion Meeting",
+      "goal": "Convert the target to your beliefs through debate and optional tithes.",
+      "source": "seed",
+      "status": "active",
+      "spawnFromChat": true,
+      "roles": [
+        "leader",
+        "audience"
+      ],
+      "selectionWeight": 0.25,
+      "cooldownMinutes": 120,
+      "phases": {
+        "start": [
+          {
+            "actionType": "move_to_npc",
+            "actorRole": "leader",
+            "targetRole": "audience"
+          },
+          {
+            "actionType": "engage_dialogue",
+            "actorRole": "leader",
+            "targetRole": "audience",
+            "parameters": {
+              "topic": "conversion_pitch"
+            }
+          }
+        ],
+        "loop": [
+          {
+            "actionType": "engage_dialogue",
+            "actorRole": "audience",
+            "targetRole": "leader",
+            "parameters": {
+              "topic": "belief_debate"
+            }
+          },
+          {
+            "actionType": "exchange_coins",
+            "actorRole": "audience",
+            "targetRole": "leader",
+            "parameters": {
+              "mode": "optional_tithe_small"
+            }
+          }
+        ],
+        "end": []
+      },
+      "outcomes": [
+        {
+          "id": "converted",
+          "probability": 0.5,
+          "effects": [
+            "follower_tag_applied",
+            "leader_influence_up"
+          ]
+        },
+        {
+          "id": "resisted",
+          "probability": 0.5,
+          "effects": [
+            "trust_drop"
+          ]
+        }
+      ],
+      "expiry": {
+        "type": "ttl_hours",
+        "ttlHours": 72
+      }
+    }
+  ]
+}

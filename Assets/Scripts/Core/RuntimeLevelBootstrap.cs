@@ -1628,12 +1628,17 @@ namespace Rpg.Core
         {
             var list = new List<GameObject>();
             var seen = new HashSet<GameObject>();
+            var seenSources = new HashSet<GameObject>();
             var duplicateMovementSkips = new List<(string sourceName, string movementName)>();
             var playerGo = GameObject.FindGameObjectWithTag(GameConstants.PlayerTag);
 
             void tryAdd(GameObject sourceGo)
             {
                 if (sourceGo == null)
+                    return;
+                // We scan three source sets (bindings/interactables/CC roots); the same object can appear in more than
+                // one set, which is not a real duplicate NPC and should not emit warning noise.
+                if (!seenSources.Add(sourceGo))
                     return;
                 if (!SourceHasDialogueAnchor(sourceGo))
                     return;
@@ -2101,7 +2106,7 @@ namespace Rpg.Core
             {
                 var pick = animal.GetComponent<ItemPickup>() ?? animal.AddComponent<ItemPickup>();
                 pick.Configure(GameConstants.LiveChickenItemId);
-                EnsureChickenPickupProxyCollider(animal);
+                LiveChickenPickupProxy.Ensure(animal);
             }
 
             occupied.Add(animal.transform.position);
@@ -2111,17 +2116,7 @@ namespace Rpg.Core
         /// Large trigger collider so raycasts (with <see cref="QueryTriggerInteraction.Collide"/>) reliably hit chickens
         /// before terrain or tiny rig colliders; does not affect NavMesh or root physics.
         /// </summary>
-        static void EnsureChickenPickupProxyCollider(GameObject animal)
-        {
-            if (animal == null || animal.transform.Find("ItemPickupProxy") != null)
-                return;
-            var proxy = new GameObject("ItemPickupProxy");
-            proxy.transform.SetParent(animal.transform, false);
-            proxy.transform.localPosition = new Vector3(0f, 0.85f, 0f);
-            var sc = proxy.AddComponent<SphereCollider>();
-            sc.isTrigger = true;
-            sc.radius = 2.4f;
-        }
+        static void EnsureChickenPickupProxyCollider(GameObject animal) => LiveChickenPickupProxy.Ensure(animal);
 
         /// <summary>
         /// Authored scenes: chickens/horses per numbered house, one kitty and one dog near each dialogue NPC (tigers stay separate).

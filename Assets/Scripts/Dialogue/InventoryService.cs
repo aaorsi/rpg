@@ -136,15 +136,134 @@ namespace Rpg.Dialogue
                 return;
             EnsureActor(npcId);
             var actor = GetActor(npcId);
-            if (actor.entries.Count > 0)
+            if (HasNonCoinInventory(actor))
                 return;
-            var all = AllKnownItemIds().ToArray();
+            var all = AllKnownItemIds().Where(id => !IsCoinAlias(id)).ToArray();
             if (all.Length == 0)
                 return;
             var seed = npcId.GetHashCode();
             var rng = new System.Random(seed);
             var item = all[rng.Next(all.Length)];
             AddItem(npcId, item, 1);
+        }
+
+        public int GetCoinBalance(string actorId)
+        {
+            if (string.IsNullOrWhiteSpace(actorId))
+                return 0;
+            var actor = GetActorOrNull(actorId);
+            if (actor == null || actor.entries == null)
+                return 0;
+            var entry = actor.entries.FirstOrDefault(x =>
+                x != null && string.Equals(x.itemId, CoinItemId, StringComparison.OrdinalIgnoreCase));
+            return entry != null ? Mathf.Max(0, entry.quantity) : 0;
+        }
+
+        public void EnsureVillageNpcWallets(IReadOnlyList<string> npcIds, int wealthyNpcCount = 5)
+        {
+            if (npcIds == null || npcIds.Count == 0)
+                return;
+            var candidates = new List<string>();
+            for (var i = 0; i < npcIds.Count; i++)
+            {
+                var id = npcIds[i];
+                if (string.IsNullOrWhiteSpace(id)
+                    || string.Equals(id.Trim(), HeroActorId, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (!candidates.Contains(id.Trim()))
+                    candidates.Add(id.Trim());
+            }
+
+            if (candidates.Count == 0)
+                return;
+
+            var rng = new System.Random(BuildWalletSeed(candidates));
+            var wealthy = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var shuffled = candidates.OrderBy(_ => rng.Next()).ToList();
+            var wealthySlots = Mathf.Clamp(wealthyNpcCount, 0, shuffled.Count);
+            for (var i = 0; i < wealthySlots; i++)
+                wealthy.Add(shuffled[i]);
+
+            for (var i = 0; i < candidates.Count; i++)
+            {
+                var npcId = candidates[i];
+                EnsureActor(npcId);
+                if (GetCoinBalance(npcId) > 0)
+                    continue;
+                var coins = wealthy.Contains(npcId) ? rng.Next(50, 76) : rng.Next(0, 11);
+                if (coins > 0)
+                    TryAddItem(npcId, CoinItemId, coins);
+            }
+        }
+
+        public bool TryStealRandomItem(string fromActorId, string toActorId, out string stolenItemId, out string stolenDisplayName)
+        {
+            stolenItemId = string.Empty;
+            stolenDisplayName = string.Empty;
+            if (string.IsNullOrWhiteSpace(fromActorId) || string.IsNullOrWhiteSpace(toActorId))
+                return false;
+            var actor = GetActorOrNull(fromActorId);
+            if (actor?.entries == null || actor.entries.Count == 0)
+                return false;
+            var stealable = actor.entries
+                .Where(e => e != null
+                    && !string.IsNullOrWhiteSpace(e.itemId)
+                    && e.quantity > 0
+                    && !IsCoinAlias(e.itemId))
+                .ToList();
+            if (stealable.Count == 0)
+                return false;
+            var seed = (fromActorId + "|" + toActorId).GetHashCode();
+            var pick = stealable[new System.Random(seed).Next(stealable.Count)];
+            stolenItemId = pick.itemId;
+            stolenDisplayName = GetItemDisplayName(stolenItemId);
+            return TryTransfer(fromActorId, toActorId, stolenItemId, 1);
+        }
+
+        public IReadOnlyList<InventoryViewEntry> GetStealableItems(string actorId)
+        {
+            var rows = GetInventoryView(actorId);
+            return rows.Where(e => e != null
+                    && !string.IsNullOrWhiteSpace(e.itemId)
+                    && e.quantity > 0
+                    && !IsCoinAlias(e.itemId))
+                .ToList();
+        }
+
+        static int BuildWalletSeed(IReadOnlyList<string> npcIds)
+        {
+            unchecked
+            {
+                var hash = 17;
+                for (var i = 0; i < npcIds.Count; i++)
+                {
+                    var id = npcIds[i];
+                    if (string.IsNullOrWhiteSpace(id))
+                        continue;
+                    hash = hash * 31 + id.Trim().ToLowerInvariant().GetHashCode();
+                }
+
+                return hash;
+            }
+        }
+
+        static bool HasNonCoinInventory(ActorInventory actor)
+        {
+            if (actor?.entries == null)
+                return false;
+            for (var i = 0; i < actor.entries.Count; i++)
+            {
+                var entry = actor.entries[i];
+                if (entry == null || string.IsNullOrWhiteSpace(entry.itemId) || entry.quantity <= 0)
+                    continue;
+                if (!IsCoinAlias(entry.itemId))
+                    return true;
+            }
+
+            return false;
         }
 
         public void EnsureActor(string actorId)

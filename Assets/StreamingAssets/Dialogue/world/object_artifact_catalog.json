@@ -46,10 +46,5 @@
     { "id": "vase_v1", "label": "VaseV1", "category": "prop", "interactionTags": ["inspect", "trade"], "tradeValue": 5, "questCritical": false, "stackable": false, "usableActions": ["inspect_location"], "prefabHint": "Assets/Medieval props/Prefabs/VaseV1.prefab" },
     { "id": "live_chicken", "label": "Live Chicken", "category": "consumable", "interactionTags": ["give", "trade"], "tradeValue": 2, "questCritical": false, "stackable": true, "usableActions": [], "prefabHint": "Assets/Resources/AnimalsFree/Chicken_001.prefab" }
   ],
-  "artifacts": [
-    { "id": "magic_diamond", "label": "Magic Diamond", "category": "relic", "interactionTags": ["ritual", "unlock"], "tradeValue": 100, "questCritical": true, "stackable": false, "usableActions": ["activate_object", "give_object"], "prefabHint": "" },
-    { "id": "portal_core", "label": "Portal Core", "category": "relic", "interactionTags": ["activate", "seal"], "tradeValue": 120, "questCritical": true, "stackable": false, "usableActions": ["activate_object"], "prefabHint": "" },
-    { "id": "magic_statue", "label": "Magic Statue", "category": "structure", "interactionTags": ["inspect", "activate"], "tradeValue": 0, "questCritical": true, "stackable": false, "usableActions": ["inspect_location", "activate_object"], "prefabHint": "" },
-    { "id": "hidden_castle", "label": "Hidden Castle", "category": "location_key", "interactionTags": ["discover", "access"], "tradeValue": 0, "questCritical": true, "stackable": false, "usableActions": ["move_to_location", "inspect_location"], "prefabHint": "" }
-  ]
+  "artifacts": []
 }

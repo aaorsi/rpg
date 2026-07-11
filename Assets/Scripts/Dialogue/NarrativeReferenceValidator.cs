@@ -51,6 +51,22 @@ namespace Rpg.Dialogue
                     issues.Add($"Unknown milestone id: {m}");
             }
 
+            foreach (var req in canon.tradeRequirements ?? new List<TradeRequirementEntry>())
+            {
+                if (req == null)
+                {
+                    issues.Add("Trade requirement entry is null.");
+                    continue;
+                }
+
+                if (!string.IsNullOrWhiteSpace(req.ownerNpcId) && !_npcIds.Contains(req.ownerNpcId.Trim()))
+                    issues.Add($"Unknown ownerNpcId in trade requirement '{req.id}': {req.ownerNpcId}");
+                if (!string.IsNullOrWhiteSpace(req.givesItemId) && !_itemIds.Contains(req.givesItemId.Trim()))
+                    issues.Add($"Unknown givesItemId in trade requirement '{req.id}': {req.givesItemId}");
+                if (!string.IsNullOrWhiteSpace(req.wantsItemId) && !_itemIds.Contains(req.wantsItemId.Trim()))
+                    issues.Add($"Unknown wantsItemId in trade requirement '{req.id}': {req.wantsItemId}");
+            }
+
             return issues;
         }
 

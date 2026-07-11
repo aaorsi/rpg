@@ -15,6 +15,8 @@ from .models import (
     DialogueTurnResponse,
     GeneratedNpcPersona,
     LlmDialogueOutput,
+    InteractionLineRequest,
+    InteractionLineResponse,
     MessageDto,
     NarrativeGenerationRequest,
     NarrativeGenerationResponse,
@@ -94,6 +96,38 @@ class PolicyOrchestrator:
         except Exception as ex:
             return self._fail("dialogue_failed", rid, ex)
 
+    async def run_interaction_line(self, request: InteractionLineRequest) -> PolicyEnvelope:
+        rid = request.request_id
+        version_error = self._reject_unsupported_version(request.schema_version, rid)
+        if version_error is not None:
+            return version_error
+        try:
+            system = (
+                "You are an NPC in a village RPG. Reply with ONLY valid JSON matching "
+                '{"say":"one short in-character line"}. No markdown, no extra keys.'
+            )
+            raw = await self._adapter.chat(
+                base_url=request.provider_base_url or _DEFAULT_PROVIDER,
+                model=request.model,
+                messages=[
+                    MessageDto(role="system", content=system),
+                    MessageDto(role="user", content=request.prompt or ""),
+                ],
+                api_token=request.api_token,
+            )
+            llm_output = LlmDialogueOutput.model_validate(parse_dialogue_output(raw))
+            say = (llm_output.say or "").strip()
+            if not say:
+                raise ValueError("empty_say")
+            response = InteractionLineResponse(
+                request_id=rid,
+                say=say,
+                raw_assistant=raw,
+            )
+            return PolicyEnvelope(ok=True, interaction=response)
+        except Exception as ex:
+            return self._fail("interaction_line_failed", rid, ex)
+
     async def run_summary(self, request: ConversationSummaryRequest) -> PolicyEnvelope:
         rid = request.request_id
         version_error = self._reject_unsupported_version(request.schema_version, rid)
@@ -142,9 +176,13 @@ class PolicyOrchestrator:
         if version_error is not None:
             return version_error
         try:
+            fallback_obj = parse_json_object(request.fallback_canon_json)
+            fallback_obj["seed"] = request.seed
             system = "You are a game narrative generator. Return ONLY JSON matching the provided schema scaffold."
             user = (
-                "Generate coherent narrative from this scaffold and preserve route counts >= 2.\n"
+                "Generate coherent narrative from this scaffold and preserve route counts >= 2. "
+                "Use only NPC ids, item ids, and locations already present in the scaffold. "
+                "Do not invent phantom quest items (no magic diamonds, portal cores, magic statues, or hidden castles).\n"
                 + request.fallback_canon_json
             )
             raw = await self._adapter.chat(
@@ -156,14 +194,15 @@ class PolicyOrchestrator:
                 ],
                 api_token=request.api_token,
             )
-            obj = parse_json_object(raw)
+            try:
+                obj = parse_json_object(raw)
+            except ValueError:
+                # Prefer continuity over failure: if the model emits non-JSON, keep play moving with fallback canon.
+                obj = fallback_obj
             obj["seed"] = request.seed
             invalid = self._narrative_route_violation(obj)
             if invalid is not None:
-                return PolicyEnvelope(
-                    ok=False,
-                    error=PolicyError(code="narrative_invalid", message=invalid),
-                )
+                obj = fallback_obj
             response = NarrativeGenerationResponse(
                 request_id=rid,
                 canon_json=json.dumps(obj, separators=(",", ":")),
@@ -211,6 +250,10 @@ class PolicyOrchestrator:
                 parsed = self._parse_deliberation_steps(raw, max_steps=request.max_steps)
             except ValueError:
                 parsed = []
+            try:
+                proposed_interactions = self._parse_deliberation_proposed_interactions(raw)
+            except ValueError:
+                proposed_interactions = []
             normalized = self._deliberation_policy.normalize_steps(
                 parsed,
                 self_npc_id=request.npc_id,
@@ -225,6 +268,7 @@ class PolicyOrchestrator:
             response = NpcDeliberationResponse(
                 request_id=rid,
                 steps=normalized,
+                proposed_interactions=proposed_interactions,
                 used_fallback=used_fallback,
                 raw_assistant=raw,
             )
@@ -371,6 +415,11 @@ class PolicyOrchestrator:
 
     def _build_deliberation_messages(self, request: NpcDeliberationRequest) -> List[MessageDto]:
         allowed = sorted(self._deliberation_policy.allowed_primitives)
+        world_facts = ""
+        surroundings = ""
+        if isinstance(request.world, dict):
+            world_facts = str(request.world.get("worldFacts") or request.world.get("world_facts") or "").strip()
+            surroundings = str(request.world.get("surroundingsBlock") or request.world.get("surroundings_block") or "").strip()
         system = (
             "You produce compact NPC execution plans from goals. "
             "Return ONLY JSON with key `steps` (array). "
@@ -379,7 +428,9 @@ class PolicyOrchestrator:
             f"{allowed}. "
             "targetId must be empty for idle_home. "
             "targetId for goto_location/wait_at must be from locationIds, "
-            "for goto_npc/chat_with_npc from npcIds, and for perform_work from workIds."
+            "for goto_npc/chat_with_npc from npcIds, and for perform_work from workIds. "
+            "Treat locationIds/npcIds/workIds as authoritative and never invent IDs. "
+            "If the goal mentions unavailable entities, plan only with the provided valid IDs."
         )
         user = (
             f"npcId={request.npc_id}\n"
@@ -387,7 +438,9 @@ class PolicyOrchestrator:
             f"maxSteps={request.max_steps}\n"
             f"locationIds={json.dumps(request.targets.location_ids)}\n"
             f"npcIds={json.dumps(request.targets.npc_ids)}\n"
-            f"workIds={json.dumps(request.targets.work_ids)}"
+            f"workIds={json.dumps(request.targets.work_ids)}\n"
+            f"worldFacts={world_facts}\n"
+            f"surroundings={surroundings}"
         )
         return [
             MessageDto(role="system", content=system),
@@ -509,6 +562,24 @@ class PolicyOrchestrator:
                 )
             )
         return steps
+
+    def _parse_deliberation_proposed_interactions(self, raw: str) -> List[dict]:
+        obj = parse_json_object(raw)
+        candidates = (
+            obj.get("proposedInteractions")
+            or obj.get("proposed_interactions")
+            or obj.get("newInteractions")
+            or obj.get("new_interactions")
+        )
+        if isinstance(candidates, dict):
+            candidates = [candidates]
+        if not isinstance(candidates, list):
+            return []
+        out: List[dict] = []
+        for candidate in candidates:
+            if isinstance(candidate, dict):
+                out.append(candidate)
+        return out
 
     def _fallback_plan_steps(self, request: NpcDeliberationRequest) -> List[NpcPlanStep]:
         steps: List[NpcPlanStep] = []

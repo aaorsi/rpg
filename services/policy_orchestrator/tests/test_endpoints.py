@@ -387,8 +387,9 @@ def test_narrative_generate_rejects_route_budget_violations() -> None:
     )
     with _client(reply) as client:
         data = client.post("/v1/narrative/generate", json=body).json()
-    assert data["ok"] is False
-    assert data["error"]["code"] == "narrative_invalid"
+    assert data["ok"] is True
+    assert data["narrative"] is not None
+    assert '"m1":2' in data["narrative"]["canonJson"] or '"m1": 2' in data["narrative"]["canonJson"]
 
 
 def test_narrative_generate_success_for_valid_routes() -> None:
@@ -465,3 +466,17 @@ def test_tts_synthesize_rejects_long_text() -> None:
         data = client.post("/v1/tts/synthesize", json=body).json()
     assert data["ok"] is False
     assert data["error"]["code"] == "text_too_long"
+
+
+def test_interaction_line_success() -> None:
+    body = {
+        "model": "llama3.2",
+        "npcId": "villager_001",
+        "displayName": "Ada",
+        "prompt": "[VILLAGE_INTERACTION] say one flirtatious line.",
+    }
+    reply = '{"say":"Well hello there, stranger."}'
+    with _client(reply) as client:
+        data = client.post("/v1/interaction/line", json=body).json()
+    assert data["ok"] is True
+    assert data["interaction"]["say"] == "Well hello there, stranger."

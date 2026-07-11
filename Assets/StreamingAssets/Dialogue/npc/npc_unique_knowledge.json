@@ -5,7 +5,7 @@
       "npcId": "npc_1_mara",
       "npcType": "normal",
       "uniqueKnowledge": [
-        "A magic book is hidden near the warehouse site.",
+        "A clue book is hidden near the warehouse site.",
         "Locals avoid the toxic shoreline even during daylight.",
         "There is a Ghoul guarding the castle, a hero alone cannot defeat it"
       ],
@@ -20,7 +20,7 @@
       "uniqueKnowledge": [
         "A portal rumor is true: it appears in the castle interior.",
         "The Ghoul becomes more aggressive when approached alone.",
-        "Magic is stored in books, and a circle of three or more can unleash the strongest spell."
+        "Old books and local clues are used to plan safer castle routes."
       ],
       "preferredGoals": [
         "Secure better tools through barter.",
@@ -36,8 +36,8 @@
       "npcType": "sidekick",
       "uniqueKnowledge": [
         "The castle route is safer when traveling with companions.",
-        "The village is a dangerous place but there may be one of the magic books there.",
-        "Books carry magic, and when at least three magicians join power, their spell reaches its peak."
+        "The village is dangerous but there may be one of the clue books there.",
+        "Coordinated groups are more likely to survive the castle push than lone fighters."
       ],
       "preferredGoals": [
         "Push the hero toward alliance-building choices."

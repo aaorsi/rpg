@@ -75,7 +75,7 @@ namespace Rpg.Dialogue
             persona.personaId = BuildStablePersonaId(normalizedNpcId);
             persona.personality = string.IsNullOrWhiteSpace(persona.personality) ? "practical" : persona.personality.Trim();
             persona.socialTraits ??= new Dictionary<string, string>();
-            persona.goals ??= new List<string>();
+            persona.goals = NarrativePhantomReferenceFilter.SanitizeGoalList(persona.goals);
             persona.capabilities ??= BuildDefaultCapabilities(npcTypeHint);
             if (persona.capabilities.Count == 0)
                 persona.capabilities = BuildDefaultCapabilities(npcTypeHint);
