@@ -535,7 +535,7 @@ namespace Rpg.Dialogue
             if (!heroInvolved && !_dialogueOpen)
             {
                 _autonomousInteractionCo = StartCoroutine(
-                    CoRunHudInteractionDialogueLine(simulation, instance, speaker, targetName, topicLabel, phase, step));
+                    CoRunBackgroundInteractionDialogueBeat(simulation, instance, speaker, targetName, phase, step));
                 return;
             }
 
@@ -571,6 +571,34 @@ namespace Rpg.Dialogue
 
         static bool IsHeroParticipant(string npcId) =>
             string.Equals(npcId?.Trim(), InventoryService.HeroActorId, StringComparison.OrdinalIgnoreCase);
+
+        IEnumerator CoRunBackgroundInteractionDialogueBeat(
+            VillageAgentSimulation simulation,
+            InteractionRuntimeInstance instance,
+            NpcDefinition speaker,
+            string targetName,
+            string phase,
+            InteractionActionStep step)
+        {
+            if (speaker == null || instance == null)
+            {
+                simulation?.NotifyInteractionDialogueStepCompleted(instance?.instanceId, false);
+                yield break;
+            }
+
+            _autonomousInteractionRunning = true;
+            var lineText = InteractionDialogueScript.ResolveBackgroundBeatLine(
+                instance,
+                speaker.displayName,
+                targetName,
+                phase,
+                step);
+            if (!string.IsNullOrWhiteSpace(lineText))
+                ShowHudMessage($"{speaker.displayName}: {lineText}");
+            _autonomousInteractionRunning = false;
+            _autonomousInteractionCo = null;
+            simulation?.NotifyInteractionDialogueStepCompleted(instance.instanceId, true);
+        }
 
         IEnumerator CoRunHudInteractionDialogueLine(
             VillageAgentSimulation simulation,

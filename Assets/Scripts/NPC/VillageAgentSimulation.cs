@@ -33,6 +33,7 @@ namespace Rpg.Npc
         [SerializeField] float ambientChatterCooldownSeconds = 5f;
         [SerializeField] float ambientChatterPairCooldownSeconds = 16f;
         [SerializeField, Range(0, 100)] int ambientChatterRichVariantPercent = 12;
+        [SerializeField] bool autoPromoteProposedInteractionsInDevelopment;
 
         WorldStateService _worldState;
         OllamaSettings _settings;
@@ -69,11 +70,19 @@ namespace Rpg.Npc
         bool _autoCompleteInteractionDialogue;
         VillageWorldReferenceSnapshot _worldReferenceSnapshot;
         string _lastDialoguePhase = string.Empty;
+        readonly VillageInteractionDebugEventLog _interactionDebugEvents = new VillageInteractionDebugEventLog();
+        bool _allowDebugInteractionInjection;
 
         public IReadOnlyDictionary<string, VillagerRuntimeState> States => _stateByNpcId;
         public VillageOpinionService OpinionService => _opinionService;
         public InteractionDefinitionsDoc InteractionDefinitions => _interactionDefinitions;
         public VillageWorldReferenceSnapshot WorldReferenceSnapshot => _worldReferenceSnapshot;
+        public IReadOnlyList<VillageInteractionRejectEvent> InteractionRejectEvents => _interactionDebugEvents.RejectEvents;
+        public bool AutoPromoteProposedInteractionsInDevelopment
+        {
+            get => autoPromoteProposedInteractionsInDevelopment;
+            set => autoPromoteProposedInteractionsInDevelopment = value;
+        }
         public IReadOnlyList<InteractionRuntimeInstance> ActiveInteractions => _activeInteractions;
         public bool HasRunningInteractions
         {
@@ -93,6 +102,69 @@ namespace Rpg.Npc
         {
             var inventory = ResolveInventory();
             return inventory != null ? inventory.GetCoinBalance(actorId) : 0;
+        }
+
+        public void RequestWorldReferenceRefresh(string reason = "manual")
+        {
+            EnsureInitialized();
+            _nextNpcReferenceRefreshAt = 0f;
+            RefreshNpcReferenceSnapshot(Time.time);
+            DialogueTelemetry.Log("VillageWorldReferenceRefresh", reason ?? "manual");
+        }
+
+        public void BuildProposedInteractionIdList(List<string> target)
+        {
+            if (target == null)
+                return;
+            target.Clear();
+            if (_interactionDefinitions?.interactions == null)
+                return;
+            for (var i = 0; i < _interactionDefinitions.interactions.Count; i++)
+            {
+                var item = _interactionDefinitions.interactions[i];
+                if (item == null || string.IsNullOrWhiteSpace(item.id))
+                    continue;
+                if (!string.Equals(item.status, "proposed", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                target.Add(item.id.Trim());
+            }
+        }
+
+        public bool TryRegisterDebugInteractionDefinition(InteractionDefinition definition, out string error)
+        {
+            EnsureInitialized();
+            error = string.Empty;
+            if (!_allowDebugInteractionInjection)
+            {
+                error = "debug_injection_disabled";
+                return false;
+            }
+
+            if (definition == null || string.IsNullOrWhiteSpace(definition.id))
+            {
+                error = "missing_definition_id";
+                return false;
+            }
+
+            _interactionDefinitions ??= new InteractionDefinitionsDoc();
+            _interactionDefinitions.interactions ??= new List<InteractionDefinition>();
+            var id = definition.id.Trim();
+            var replaced = false;
+            for (var i = 0; i < _interactionDefinitions.interactions.Count; i++)
+            {
+                var existing = _interactionDefinitions.interactions[i];
+                if (existing == null || string.IsNullOrWhiteSpace(existing.id))
+                    continue;
+                if (!string.Equals(existing.id.Trim(), id, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                _interactionDefinitions.interactions[i] = definition;
+                replaced = true;
+                break;
+            }
+
+            if (!replaced)
+                _interactionDefinitions.interactions.Add(definition);
+            return true;
         }
 
         public IReadOnlyList<string> BuildVillagerDebugLines(string npcId)
@@ -1407,6 +1479,7 @@ namespace Rpg.Npc
                 : askStatePath;
             _opinionService = new VillageOpinionService(testAskPath);
             _autoCompleteInteractionDialogue = true;
+            _allowDebugInteractionInjection = true;
             _initialized = false;
             EnsureInitialized();
         }
@@ -1500,6 +1573,7 @@ namespace Rpg.Npc
         void RefreshWorldReferenceSnapshot(float nowTime)
         {
             var snapshot = new VillageWorldReferenceSnapshot { capturedAtTime = nowTime };
+            var goalIdsSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             for (var i = 0; i < _staticLocationIds.Count; i++)
             {
                 var id = _staticLocationIds[i];
@@ -1530,6 +1604,44 @@ namespace Rpg.Npc
                     positionY = pos.y,
                     positionZ = pos.z
                 });
+
+                if (state.ActiveGoals != null)
+                {
+                    for (var g = 0; g < state.ActiveGoals.Count; g++)
+                    {
+                        var goal = state.ActiveGoals[g];
+                        if (string.IsNullOrWhiteSpace(goal))
+                            continue;
+                        var trimmed = goal.Trim();
+                        if (goalIdsSeen.Add(trimmed))
+                            snapshot.goalIds.Add(trimmed);
+                    }
+                }
+
+                if (state.Binding?.Persona?.goals != null)
+                {
+                    for (var g = 0; g < state.Binding.Persona.goals.Count; g++)
+                    {
+                        var goal = state.Binding.Persona.goals[g];
+                        if (string.IsNullOrWhiteSpace(goal))
+                            continue;
+                        var trimmed = goal.Trim();
+                        if (goalIdsSeen.Add(trimmed))
+                            snapshot.goalIds.Add(trimmed);
+                    }
+                }
+
+                if (_opinionService != null)
+                {
+                    var summary = _opinionService.GetSummary(state.NpcId);
+                    snapshot.relationships.Add(new VillageRelationshipReferenceEntry
+                    {
+                        subjectNpcId = state.NpcId,
+                        objectNpcId = InventoryService.HeroActorId,
+                        metric = "opinionTowardHero",
+                        value = summary.OpinionTowardHero
+                    });
+                }
             }
 
             _worldReferenceSnapshot = snapshot;
@@ -1541,6 +1653,7 @@ namespace Rpg.Npc
                 return;
             _nextVillagerRefreshAt = nowTime + Mathf.Max(0.25f, villagerRefreshSeconds);
 
+            var previousNpcCount = _stateByNpcId.Count;
             _participantCache.Clear();
             var seenNpcIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var binding in FindObjectsByType<NpcDialogueBinding>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
@@ -1579,6 +1692,8 @@ namespace Rpg.Npc
             _ambientChatterService.SetParticipants(_participantCache);
             EnsureNpcWalletsSeeded();
             UpdateLiveNpcPositions();
+            if (_stateByNpcId.Count != previousNpcCount || _removeScratch.Count > 0)
+                _nextNpcReferenceRefreshAt = 0f;
             RefreshNpcReferenceSnapshot(nowTime);
         }
 
@@ -2077,11 +2192,45 @@ namespace Rpg.Npc
             if (!ValidateInteractionStepReferences(instance, step, actorNpcId, targetNpcId, out var refError))
             {
                 RecordInteractionStepResult(instance, new InteractionEffectResolver.StepResult(false, refError));
+                HandleInvalidInteractionStepReference(instance, actorNpcId, targetNpcId, refError, nowTime);
                 return true;
             }
 
             ApplyInteractionStep(instance, step, nowTime);
             return true;
+        }
+
+        void HandleInvalidInteractionStepReference(
+            InteractionRuntimeInstance instance,
+            string actorNpcId,
+            string targetNpcId,
+            string refError,
+            float nowTime)
+        {
+            if (instance == null)
+                return;
+
+            _interactionDebugEvents.RecordReject(new VillageInteractionRejectEvent(
+                nowTime,
+                instance.instanceId,
+                instance.interactionId,
+                actorNpcId,
+                refError));
+
+            DialogueTelemetry.Log(
+                "VillageInteractionStepRejected",
+                $"instance={instance.instanceId}, interaction={instance.interactionId}, actor={actorNpcId}, target={targetNpcId}, reason={refError}");
+
+            if (!string.IsNullOrWhiteSpace(actorNpcId) && !IsHeroParticipant(actorNpcId))
+                RequestRedeliberation(actorNpcId, "invalid_interaction_ref");
+            if (!string.IsNullOrWhiteSpace(targetNpcId)
+                && !IsHeroParticipant(targetNpcId)
+                && !string.Equals(actorNpcId, targetNpcId, StringComparison.OrdinalIgnoreCase))
+            {
+                RequestRedeliberation(targetNpcId, "invalid_interaction_ref");
+            }
+
+            CompleteInteraction(instance, InteractionRuntimeStatus.Failed, refError, nowTime);
         }
 
         bool ValidateInteractionStepReferences(
@@ -2776,6 +2925,15 @@ namespace Rpg.Npc
             }
             for (var i = 0; i < _knownWorkIds.Count; i++)
                 targets.workIds.Add(_knownWorkIds[i]);
+            if (_worldReferenceSnapshot?.goalIds != null)
+            {
+                for (var i = 0; i < _worldReferenceSnapshot.goalIds.Count; i++)
+                {
+                    var goalId = _worldReferenceSnapshot.goalIds[i];
+                    if (!string.IsNullOrWhiteSpace(goalId))
+                        targets.goalIds.Add(goalId);
+                }
+            }
             if (!string.IsNullOrWhiteSpace(requesterNpcId) && !targets.npcIds.Contains(requesterNpcId))
                 targets.npcIds.Add(requesterNpcId);
             return targets;
@@ -2818,6 +2976,9 @@ namespace Rpg.Npc
             return string.Join("\n", lines);
         }
 
+        bool ShouldAutoPromoteProposedInteractions() =>
+            autoPromoteProposedInteractionsInDevelopment && (Application.isEditor || Debug.isDebugBuild);
+
         void PersistProposedInteractions(List<InteractionDefinition> candidates)
         {
             if (_interactionRegistry == null || candidates == null || candidates.Count == 0)
@@ -2833,6 +2994,13 @@ namespace Rpg.Npc
                 {
                     persisted++;
                     DialogueTelemetry.Log("VillageInteractionProposed", $"id={candidate.id}");
+                    if (ShouldAutoPromoteProposedInteractions())
+                    {
+                        if (_interactionRegistry.TryPromoteProposedToActive(candidate.id.Trim(), out var promoteError))
+                            DialogueTelemetry.Log("VillageInteractionAutoPromoted", $"id={candidate.id}");
+                        else if (!string.IsNullOrWhiteSpace(promoteError))
+                            DialogueTelemetry.Log("VillageInteractionAutoPromoteRejected", $"id={candidate.id}, reason={promoteError}");
+                    }
                 }
                 else if (!string.IsNullOrWhiteSpace(error))
                 {

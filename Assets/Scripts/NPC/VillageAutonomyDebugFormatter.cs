@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Rpg.Dialogue;
+using UnityEngine;
 
 namespace Rpg.Npc
 {
@@ -86,6 +87,8 @@ namespace Rpg.Npc
             lines.Add($"target: {target}");
             lines.Add($"goal: {goal}");
             lines.Add($"status: {instance.status} ({instance.statusReason})");
+            lines.Add(BuildValidityLine(instance));
+            lines.Add(BuildExpiryLine(instance));
 
             if (!string.IsNullOrWhiteSpace(instance.currentActionType))
             {
@@ -120,6 +123,37 @@ namespace Rpg.Npc
             }
 
             return lines;
+        }
+
+        public static string BuildValidityLineForInstance(InteractionRuntimeInstance instance) =>
+            BuildValidityLine(instance);
+
+        static string BuildValidityLine(InteractionRuntimeInstance instance)
+        {
+            if (instance == null)
+                return "validity: unknown";
+            if (instance.status == InteractionRuntimeStatus.Failed)
+                return "validity: invalid (failed)";
+            if (instance.stepLog != null && instance.stepLog.Count > 0)
+            {
+                var last = instance.stepLog[instance.stepLog.Count - 1] ?? string.Empty;
+                if (last.IndexOf("invalid", StringComparison.OrdinalIgnoreCase) >= 0
+                    || last.IndexOf("unknown locationRef", StringComparison.OrdinalIgnoreCase) >= 0
+                    || last.IndexOf("missing locationRef", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return "validity: invalid ref logged";
+                }
+            }
+
+            return "validity: ok";
+        }
+
+        static string BuildExpiryLine(InteractionRuntimeInstance instance)
+        {
+            if (instance == null || instance.expiresAtTime <= 0f)
+                return "expiry: none";
+            var remaining = Mathf.Max(0f, instance.expiresAtTime - Time.time);
+            return $"expiry: in {remaining:F1}s";
         }
 
         static string FormatParticipant(

@@ -59,6 +59,12 @@ namespace Rpg.Npc
         readonly List<VillageAgentSimulation.DebugLocationEntry> _locationOptions = new List<VillageAgentSimulation.DebugLocationEntry>();
         readonly List<VillageAgentSimulation.DebugItemEntry> _itemOptions = new List<VillageAgentSimulation.DebugItemEntry>();
         readonly List<string> _inventoryLines = new List<string>();
+        readonly List<string> _proposedInteractionIds = new List<string>();
+        string _interactionFilterNpc = string.Empty;
+        string _interactionFilterType = string.Empty;
+        string _proposedPromoteId = string.Empty;
+        bool _showInvalidInteractionsOnly;
+        Vector2 _rejectEventScroll;
 
         void Awake()
         {
@@ -107,8 +113,10 @@ namespace Rpg.Npc
             DrawPrimaryNpcSelectors(simulation);
             DrawAtomicActionControls(simulation);
             DrawInteractionControls(simulation);
+            DrawProposedInteractionControls(simulation);
             DrawPerNpcControls(simulation);
             DrawInteractionOverview(simulation);
+            DrawRejectEventLog(simulation);
             GUILayout.EndScrollView();
             GUILayout.EndArea();
         }
@@ -688,22 +696,79 @@ namespace Rpg.Npc
             return false;
         }
 
+        void DrawProposedInteractionControls(VillageAgentSimulation simulation)
+        {
+            GUILayout.Label("Proposed interactions", _titleStyle);
+            simulation.AutoPromoteProposedInteractionsInDevelopment = GUILayout.Toggle(
+                simulation.AutoPromoteProposedInteractionsInDevelopment,
+                "Auto-promote proposed (dev/editor only)");
+            simulation.BuildProposedInteractionIdList(_proposedInteractionIds);
+            if (_proposedInteractionIds.Count == 0)
+            {
+                GUILayout.Label("No proposed interaction types.", _lineStyle);
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(_proposedPromoteId))
+                _proposedPromoteId = _proposedInteractionIds[0];
+            _proposedPromoteId = GUILayout.TextField(_proposedPromoteId ?? string.Empty, GUILayout.Width(220f));
+            if (GUILayout.Button("Promote proposed → active", GUILayout.Width(180f)))
+            {
+                if (simulation.TryPromoteProposedInteractionForDebug(_proposedPromoteId, out var err))
+                    _statusLine = "promoted " + _proposedPromoteId;
+                else
+                    _statusLine = "promote failed: " + err;
+            }
+
+            GUILayout.Space(4f);
+        }
+
+        void DrawRejectEventLog(VillageAgentSimulation simulation)
+        {
+            var events = simulation.InteractionRejectEvents;
+            GUILayout.Label($"Reject / replan events ({events?.Count ?? 0})", _titleStyle);
+            if (events == null || events.Count == 0)
+            {
+                GUILayout.Label("No interaction reject events.", _lineStyle);
+                return;
+            }
+
+            _rejectEventScroll = GUILayout.BeginScrollView(_rejectEventScroll, GUILayout.Height(100f));
+            for (var i = events.Count - 1; i >= 0; i--)
+            {
+                var entry = events[i];
+                GUILayout.Label(
+                    $"{entry.InteractionId} [{entry.InteractionInstanceId}] actor={entry.ActorNpcId} reason={entry.Reason}",
+                    _lineStyle);
+            }
+            GUILayout.EndScrollView();
+            GUILayout.Space(4f);
+        }
+
         void DrawInteractionOverview(VillageAgentSimulation simulation)
         {
             var active = simulation.ActiveInteractions;
+            GUILayout.Space(4f);
+            GUILayout.Label("Active interactions", _titleStyle);
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("filter npc", GUILayout.Width(64f));
+            _interactionFilterNpc = GUILayout.TextField(_interactionFilterNpc ?? string.Empty, GUILayout.Width(100f));
+            GUILayout.Label("type", GUILayout.Width(32f));
+            _interactionFilterType = GUILayout.TextField(_interactionFilterType ?? string.Empty, GUILayout.Width(100f));
+            _showInvalidInteractionsOnly = GUILayout.Toggle(_showInvalidInteractionsOnly, "invalid only");
+            GUILayout.EndHorizontal();
+
             var visibleCount = 0;
             if (active != null)
             {
                 for (var i = 0; i < active.Count; i++)
                 {
-                    var entry = active[i];
-                    if (entry != null)
+                    if (ShouldShowInteractionRow(active[i]))
                         visibleCount++;
                 }
             }
 
-            GUILayout.Space(4f);
-            GUILayout.Label($"Interactions: {visibleCount}", _titleStyle);
+            GUILayout.Label($"visible: {visibleCount} / {active?.Count ?? 0}", _lineStyle);
             if (active == null || active.Count == 0)
             {
                 GUILayout.Label("No interaction instances yet.", _lineStyle);
@@ -714,10 +779,13 @@ namespace Rpg.Npc
             for (var i = 0; i < active.Count; i++)
             {
                 var entry = active[i];
-                if (entry == null)
+                if (entry == null || !ShouldShowInteractionRow(entry))
                     continue;
 
-                GUILayout.Label($"— {simulation.FormatInteractionTypeForDebug(entry)} [{entry.status}]", _titleStyle);
+                var validity = VillageAutonomyDebugFormatter.BuildValidityLineForInstance(entry);
+                GUILayout.Label(
+                    $"— {simulation.FormatInteractionTypeForDebug(entry)} [{entry.status}] {validity}",
+                    _titleStyle);
                 var lines = simulation.BuildInteractionDebugLines(entry);
                 for (var j = 0; j < lines.Count; j++)
                     GUILayout.Label(lines[j], _lineStyle);
@@ -732,6 +800,40 @@ namespace Rpg.Npc
                 GUILayout.Space(6f);
             }
             GUILayout.EndScrollView();
+        }
+
+        bool ShouldShowInteractionRow(InteractionRuntimeInstance entry)
+        {
+            if (entry == null)
+                return false;
+            if (_showInvalidInteractionsOnly)
+            {
+                var validity = VillageAutonomyDebugFormatter.BuildValidityLineForInstance(entry);
+                if (validity.IndexOf("invalid", StringComparison.OrdinalIgnoreCase) < 0)
+                    return false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(_interactionFilterNpc))
+            {
+                var filter = _interactionFilterNpc.Trim();
+                if ((entry.actorNpcId ?? string.Empty).IndexOf(filter, StringComparison.OrdinalIgnoreCase) < 0
+                    && (entry.targetNpcId ?? string.Empty).IndexOf(filter, StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    return false;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(_interactionFilterType))
+            {
+                var filter = _interactionFilterType.Trim();
+                if ((entry.interactionId ?? string.Empty).IndexOf(filter, StringComparison.OrdinalIgnoreCase) < 0
+                    && (entry.interactionDisplayName ?? string.Empty).IndexOf(filter, StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         void DrawInteractionDropdownRow(VillageAgentSimulation simulation)
