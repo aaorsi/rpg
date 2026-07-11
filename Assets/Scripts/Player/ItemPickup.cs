@@ -1,3 +1,4 @@
+using Rpg.Core;
 using UnityEngine;
 
 namespace Rpg.Player
@@ -13,10 +14,20 @@ namespace Rpg.Player
         public string ItemId => itemId;
         public bool IsConsumed => consumed;
 
+        void Awake()
+        {
+            if (!consumed
+                && !string.IsNullOrWhiteSpace(itemId)
+                && string.Equals(itemId, GameConstants.LiveChickenItemId, System.StringComparison.OrdinalIgnoreCase))
+                LiveChickenPickupProxy.Ensure(gameObject);
+        }
+
         public void Configure(string canonicalItemId)
         {
             itemId = string.IsNullOrWhiteSpace(canonicalItemId) ? string.Empty : canonicalItemId.Trim();
             consumed = false;
+            if (string.Equals(itemId, GameConstants.LiveChickenItemId, System.StringComparison.OrdinalIgnoreCase))
+                LiveChickenPickupProxy.Ensure(gameObject);
         }
 
         public bool TryConsume()

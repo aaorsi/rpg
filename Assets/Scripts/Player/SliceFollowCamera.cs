@@ -7,6 +7,7 @@ namespace Rpg.Player
     /// Third-person orbit follows <b>movement direction</b> (velocity), not character facing, so forward/back walk
     /// does not flip the camera. Scroll adjusts distance (1–10 m). First-person uses mouse yaw/pitch; movement
     /// uses first-person yaw via <see cref="FirstPersonYawDegrees"/>.
+    /// After dialogue ends, waits 3 s then blends over 3 s back behind the hero.
     /// </summary>
     [DefaultExecutionOrder(80)]
     public sealed class SliceFollowCamera : MonoBehaviour
@@ -40,6 +41,8 @@ namespace Rpg.Player
         [SerializeField] float thirdPersonPitchMin = -10f;
         [SerializeField] float thirdPersonPitchMax = 70f;
         [SerializeField] float thirdPersonVelocityFollowDelay = 0.8f;
+        [SerializeField] float returnWaitDurationSeconds = 3f;
+        [SerializeField] float returnBlendDurationSeconds = 3f;
 
         Transform _target;
         Transform _dialogueNpcTarget;
@@ -57,6 +60,17 @@ namespace Rpg.Player
         bool _fpSkipMouseDeltaOnce;
         float _orbitPitch;
         float _manualOrbitUntilTime;
+        ReturnPhase _returnPhase;
+        float _returnPhaseElapsed;
+        Vector3 _returnBlendStartPos;
+        Quaternion _returnBlendStartRot;
+
+        enum ReturnPhase
+        {
+            None,
+            Waiting,
+            Blending
+        }
 
         public bool IsFirstPersonView => _firstPerson;
         public bool IsMouseLookActive => Input.GetMouseButton(0) && !PlayerItemPickupInteractor.IsLeftClickConsumedThisFrame;
@@ -73,6 +87,7 @@ namespace Rpg.Player
         {
             if (npcTarget == null)
                 return;
+            CancelReturnToBehindHero();
             _dialogueNpcTarget = npcTarget;
             _dialogueFocusActive = true;
             _dialogueFocusElapsed = 0f;
@@ -80,8 +95,25 @@ namespace Rpg.Player
 
         public void StopDialogueFocus()
         {
+            if (!_dialogueFocusActive)
+                return;
             _dialogueFocusActive = false;
             _dialogueNpcTarget = null;
+            if (!_firstPerson)
+                BeginReturnToBehindHero();
+        }
+
+        void BeginReturnToBehindHero()
+        {
+            _returnPhase = ReturnPhase.Waiting;
+            _returnPhaseElapsed = 0f;
+            _posVelocity = Vector3.zero;
+        }
+
+        void CancelReturnToBehindHero()
+        {
+            _returnPhase = ReturnPhase.None;
+            _returnPhaseElapsed = 0f;
         }
 
         void LateUpdate()
@@ -95,6 +127,7 @@ namespace Rpg.Player
                 _firstPerson = !_firstPerson;
                 if (_firstPerson)
                 {
+                    CancelReturnToBehindHero();
                     _fpYaw = _target.eulerAngles.y;
                     _fpPitch = 0f;
                     _fpLastMousePixels = Input.mousePosition;
@@ -166,6 +199,40 @@ namespace Rpg.Player
                 return;
             }
 
+            if (_returnPhase == ReturnPhase.Waiting)
+            {
+                _returnPhaseElapsed += Time.deltaTime;
+                if (_returnPhaseElapsed >= Mathf.Max(0f, returnWaitDurationSeconds))
+                {
+                    _returnPhase = ReturnPhase.Blending;
+                    _returnPhaseElapsed = 0f;
+                    _returnBlendStartPos = transform.position;
+                    _returnBlendStartRot = transform.rotation;
+                    SyncOrbitYawBehindHero();
+                    _initialized = true;
+                }
+                return;
+            }
+
+            if (_returnPhase == ReturnPhase.Blending)
+            {
+                _returnPhaseElapsed += Time.deltaTime;
+                SyncOrbitYawBehindHero();
+                ComputeThirdPersonDesiredPose(out var desiredPos, out var desiredRot, applyMouseOrbit: false, followVelocityYaw: false);
+                var blend = returnBlendDurationSeconds > 0.01f
+                    ? Mathf.Clamp01(_returnPhaseElapsed / returnBlendDurationSeconds)
+                    : 1f;
+                var smoothBlend = Mathf.SmoothStep(0f, 1f, blend);
+                transform.position = Vector3.Lerp(_returnBlendStartPos, desiredPos, smoothBlend);
+                transform.rotation = Quaternion.Slerp(_returnBlendStartRot, desiredRot, smoothBlend);
+                if (blend >= 1f)
+                {
+                    _returnPhase = ReturnPhase.None;
+                    _posVelocity = Vector3.zero;
+                }
+                return;
+            }
+
             cameraDistance = Mathf.Clamp(cameraDistance - Input.mouseScrollDelta.y * zoomScrollSensitivity, minCameraDistance, maxCameraDistance);
 
             var cc = _target.GetComponent<CharacterController>();
@@ -187,32 +254,65 @@ namespace Rpg.Player
                 _initialized = true;
             }
 
-            var tpMousePixels = Input.mousePosition;
-            var tpLookActive = IsMouseLookActive;
-            if (tpLookActive)
+            ComputeThirdPersonDesiredPose(out var thirdPersonPos, out var thirdPersonRot, applyMouseOrbit: true, followVelocityYaw: true);
+
+            transform.position = Vector3.SmoothDamp(transform.position, thirdPersonPos, ref _posVelocity, positionSmoothTime);
+
+            var rotSharpnessThirdPerson = Mathf.Max(0.01f, lookRotationSmooth * rotationSpeedMultiplier);
+            transform.rotation = Quaternion.Slerp(transform.rotation, thirdPersonRot,
+                1f - Mathf.Exp(-rotSharpnessThirdPerson * Time.deltaTime));
+        }
+
+        void SyncOrbitYawBehindHero()
+        {
+            var back = -_target.forward;
+            back.y = 0f;
+            if (back.sqrMagnitude > 0.0001f)
+                _orbitYaw = Quaternion.LookRotation(back.normalized).eulerAngles.y;
+            _orbitPitch = Mathf.Clamp(pitchOffsetDegrees, thirdPersonPitchMin, thirdPersonPitchMax);
+            _manualOrbitUntilTime = Time.time + thirdPersonVelocityFollowDelay;
+        }
+
+        void ComputeThirdPersonDesiredPose(
+            out Vector3 desiredPos,
+            out Quaternion desiredRot,
+            bool applyMouseOrbit,
+            bool followVelocityYaw)
+        {
+            var cc = _target.GetComponent<CharacterController>();
+            var planarVel = cc != null ? new Vector3(cc.velocity.x, 0f, cc.velocity.z) : Vector3.zero;
+
+            if (applyMouseOrbit)
             {
-                if (_fpSkipMouseDeltaOnce)
+                var tpMousePixels = Input.mousePosition;
+                var tpLookActive = IsMouseLookActive;
+                if (tpLookActive)
                 {
-                    _fpSkipMouseDeltaOnce = false;
-                    _fpLastMousePixels = tpMousePixels;
+                    if (_fpSkipMouseDeltaOnce)
+                    {
+                        _fpSkipMouseDeltaOnce = false;
+                        _fpLastMousePixels = tpMousePixels;
+                    }
+                    else
+                    {
+                        var dx = tpMousePixels.x - _fpLastMousePixels.x;
+                        var dy = tpMousePixels.y - _fpLastMousePixels.y;
+                        _fpLastMousePixels = tpMousePixels;
+                        var scale = firstPersonMouseDegreesPerPixel * thirdPersonMouseSensitivity;
+                        _orbitYaw += dx * scale;
+                        _orbitPitch = Mathf.Clamp(_orbitPitch - dy * scale, thirdPersonPitchMin, thirdPersonPitchMax);
+                    }
+                    _manualOrbitUntilTime = Time.time + thirdPersonVelocityFollowDelay;
                 }
                 else
                 {
-                    var dx = tpMousePixels.x - _fpLastMousePixels.x;
-                    var dy = tpMousePixels.y - _fpLastMousePixels.y;
-                    _fpLastMousePixels = tpMousePixels;
-                    var scale = firstPersonMouseDegreesPerPixel * thirdPersonMouseSensitivity;
-                    _orbitYaw += dx * scale;
-                    _orbitPitch = Mathf.Clamp(_orbitPitch - dy * scale, thirdPersonPitchMin, thirdPersonPitchMax);
+                    _fpSkipMouseDeltaOnce = true;
                 }
-                _manualOrbitUntilTime = Time.time + thirdPersonVelocityFollowDelay;
-            }
-            else
-            {
-                _fpSkipMouseDeltaOnce = true;
             }
 
-            if (!tpLookActive && Time.time >= _manualOrbitUntilTime
+            if (followVelocityYaw
+                && !IsMouseLookActive
+                && Time.time >= _manualOrbitUntilTime
                 && planarVel.sqrMagnitude > velocityYawDeadZone * velocityYawDeadZone)
             {
                 var moveYaw = Quaternion.LookRotation(planarVel.normalized).eulerAngles.y;
@@ -222,18 +322,13 @@ namespace Rpg.Player
 
             var pivot = _target.position + Vector3.up * pivotHeight;
             var orbit = Quaternion.Euler(_orbitPitch, _orbitYaw, 0f);
-            var desiredPos = pivot + orbit * new Vector3(0f, 0f, -cameraDistance);
-
-            transform.position = Vector3.SmoothDamp(transform.position, desiredPos, ref _posVelocity, positionSmoothTime);
+            desiredPos = pivot + orbit * new Vector3(0f, 0f, -cameraDistance);
 
             var lookPoint = _target.position + Vector3.up * lookAtHeight;
-            var dir = lookPoint - transform.position;
-            if (dir.sqrMagnitude < 0.0001f)
-                return;
-            var targetRot = Quaternion.LookRotation(dir.normalized, Vector3.up);
-            var rotSharpnessThirdPerson = Mathf.Max(0.01f, lookRotationSmooth * rotationSpeedMultiplier);
-            transform.rotation = Quaternion.Slerp(transform.rotation, targetRot,
-                1f - Mathf.Exp(-rotSharpnessThirdPerson * Time.deltaTime));
+            var dir = lookPoint - desiredPos;
+            desiredRot = dir.sqrMagnitude < 0.0001f
+                ? transform.rotation
+                : Quaternion.LookRotation(dir.normalized, Vector3.up);
         }
 
         /// <summary>

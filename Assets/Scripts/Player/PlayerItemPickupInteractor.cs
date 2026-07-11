@@ -21,7 +21,7 @@ namespace Rpg.Player
 
         [SerializeField]
         [Tooltip("Live chickens can only be collected within this horizontal distance (meters).")]
-        float liveChickenMaxPickupPlanarMeters = 5f;
+        float liveChickenMaxPickupPlanarMeters = 8f;
 
         Camera _camera;
         static int _leftClickConsumedFrame = -1;
@@ -51,7 +51,7 @@ namespace Rpg.Player
             var hits = Physics.RaycastAll(ray, pickupRayDistance, pickupMask, QueryTriggerInteraction.Collide);
             if (hits == null || hits.Length == 0)
                 return false;
-            Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+            Array.Sort(hits, ComparePickupRaycastHits);
 
             var dm = DialogueManager.Instance;
             var inv = dm != null ? dm.Inventory : null;
@@ -100,6 +100,26 @@ namespace Rpg.Player
 
             return false;
         }
+
+        static int ComparePickupRaycastHits(RaycastHit a, RaycastHit b)
+        {
+            var aPickup = a.collider != null ? a.collider.GetComponentInParent<ItemPickup>() : null;
+            var bPickup = b.collider != null ? b.collider.GetComponentInParent<ItemPickup>() : null;
+            var aChicken = IsLiveChickenPickup(aPickup);
+            var bChicken = IsLiveChickenPickup(bPickup);
+            if (aChicken != bChicken)
+                return aChicken ? -1 : 1;
+            if (aPickup != null && bPickup == null)
+                return -1;
+            if (aPickup == null && bPickup != null)
+                return 1;
+            return a.distance.CompareTo(b.distance);
+        }
+
+        static bool IsLiveChickenPickup(ItemPickup pickup) =>
+            pickup != null
+            && !pickup.IsConsumed
+            && string.Equals(pickup.ItemId, GameConstants.LiveChickenItemId, StringComparison.OrdinalIgnoreCase);
 
         static ScenePickableCatalogResolver CatalogResolver =>
             _catalogResolver ?? (_catalogResolver = new ScenePickableCatalogResolver());
