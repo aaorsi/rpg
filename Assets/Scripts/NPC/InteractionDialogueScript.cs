@@ -49,6 +49,24 @@ namespace Rpg.Npc
             return $"Advance the {instance?.interactionDisplayName ?? interactionId} scene with one focused line.";
         }
 
+        public static string ResolveBackgroundBeatLine(
+            InteractionRuntimeInstance instance,
+            string speakerName,
+            string targetName,
+            string phase,
+            InteractionActionStep step)
+        {
+            var beat = ResolveBeatInstruction(instance, step, phase);
+            if (beat.IndexOf("Do not speak", StringComparison.OrdinalIgnoreCase) >= 0)
+                return string.Empty;
+
+            var interactionLabel = string.IsNullOrWhiteSpace(instance?.interactionDisplayName)
+                ? instance?.interactionId ?? "interaction"
+                : instance.interactionDisplayName.Trim();
+            var phaseLabel = string.IsNullOrWhiteSpace(phase) ? "scene" : phase.Trim();
+            return $"{speakerName} and {targetName} continue {interactionLabel} ({phaseLabel}).";
+        }
+
         public static string BuildDialoguePrompt(
             InteractionRuntimeInstance instance,
             string speakerName,

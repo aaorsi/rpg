@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aaorsi/rpg/interactions.schema.json",
+  "title": "VillageInteractionDefinitions",
+  "type": "object",
+  "required": ["schemaVersion", "atomicActionTypes", "interactions"],
+  "properties": {
+    "schemaVersion": { "type": "integer", "minimum": 1 },
+    "atomicActionTypes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "move_to_location",
+          "move_to_npc",
+          "move_to_hero",
+          "engage_dialogue",
+          "exchange_item",
+          "exchange_coins"
+        ]
+      }
+    },
+    "interactions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/interactionDefinition" }
+    }
+  },
+  "$defs": {
+    "interactionDefinition": {
+      "type": "object",
+      "required": ["id", "phases"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "displayName": { "type": "string" },
+        "goal": { "type": "string" },
+        "source": { "type": "string" },
+        "status": { "type": "string", "enum": ["proposed", "active", "disabled"] },
+        "roles": { "type": "array", "items": { "type": "string" } },
+        "selectionWeight": { "type": "number", "minimum": 0 },
+        "cooldownMinutes": { "type": "number", "minimum": 0 },
+        "spawnFromChat": { "type": "boolean" },
+        "phases": { "$ref": "#/$defs/phases" },
+        "outcomes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id"],
+            "properties": {
+              "id": { "type": "string" },
+              "probability": { "type": "number", "minimum": 0, "maximum": 1 },
+              "effects": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        "expiry": {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string" },
+            "ttlHours": { "type": "number", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "phases": {
+      "type": "object",
+      "properties": {
+        "start": { "$ref": "#/$defs/steps" },
+        "loop": { "$ref": "#/$defs/steps" },
+        "end": { "$ref": "#/$defs/steps" }
+      }
+    },
+    "steps": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/step" }
+    },
+    "step": {
+      "type": "object",
+      "required": ["actionType"],
+      "properties": {
+        "actionType": { "type": "string" },
+        "actorRole": { "type": "string" },
+        "targetRole": { "type": "string" },
+        "parameters": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    }
+  }
+}

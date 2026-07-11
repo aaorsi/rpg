@@ -170,6 +170,7 @@ namespace Rpg.Dialogue
         public List<string> locationIds = new List<string>();
         public List<string> npcIds = new List<string>();
         public List<string> workIds = new List<string>();
+        public List<string> goalIds = new List<string>();
     }
 
     [Serializable]

@@ -112,7 +112,7 @@ namespace Rpg.Npc.Tests.EditMode
             for (var i = 0; i < active.Count; i++)
             {
                 var interaction = active[i];
-                if (interaction == null || !string.Equals(interaction.interactionId, "romantic_relationship", System.StringComparison.OrdinalIgnoreCase))
+                if (interaction == null || !string.Equals(interaction.interactionId, "steal", System.StringComparison.OrdinalIgnoreCase))
                     continue;
                 found = true;
                 if (interaction.status == InteractionRuntimeStatus.Completed)

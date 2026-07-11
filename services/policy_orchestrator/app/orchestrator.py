@@ -251,7 +251,9 @@ class PolicyOrchestrator:
             except ValueError:
                 parsed = []
             try:
-                proposed_interactions = self._parse_deliberation_proposed_interactions(raw)
+                proposed_interactions = self._filter_proposed_interactions(
+                    self._parse_deliberation_proposed_interactions(raw)
+                )
             except ValueError:
                 proposed_interactions = []
             normalized = self._deliberation_policy.normalize_steps(
@@ -579,6 +581,50 @@ class PolicyOrchestrator:
         for candidate in candidates:
             if isinstance(candidate, dict):
                 out.append(candidate)
+        return out
+
+    _ALLOWED_INTERACTION_ACTION_TYPES = {
+        "move_to_location",
+        "move_to_npc",
+        "move_to_hero",
+        "engage_dialogue",
+        "exchange_item",
+        "exchange_coins",
+    }
+
+    def _filter_proposed_interactions(self, candidates: List[dict]) -> List[dict]:
+        if not candidates:
+            return []
+        out: List[dict] = []
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            interaction_id = str(candidate.get("id") or "").strip()
+            if not interaction_id:
+                continue
+            phases = candidate.get("phases")
+            if phases is not None and not isinstance(phases, dict):
+                continue
+            invalid_action = False
+            if isinstance(phases, dict):
+                for phase_key in ("start", "loop", "end"):
+                    steps = phases.get(phase_key) or []
+                    if not isinstance(steps, list):
+                        continue
+                    for step in steps:
+                        if not isinstance(step, dict):
+                            continue
+                        action = str(
+                            step.get("actionType") or step.get("action_type") or ""
+                        ).strip().lower()
+                        if action and action not in self._ALLOWED_INTERACTION_ACTION_TYPES:
+                            invalid_action = True
+                            break
+                    if invalid_action:
+                        break
+            if invalid_action:
+                continue
+            out.append(candidate)
         return out
 
     def _fallback_plan_steps(self, request: NpcDeliberationRequest) -> List[NpcPlanStep]:

@@ -152,6 +152,7 @@ class DeliberationTargets(StrictCamelModel):
     location_ids: List[str] = Field(default_factory=list)
     npc_ids: List[str] = Field(default_factory=list)
     work_ids: List[str] = Field(default_factory=list)
+    goal_ids: List[str] = Field(default_factory=list)
 
 
 class NpcDeliberationRequest(StrictCamelModel):

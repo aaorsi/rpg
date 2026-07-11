@@ -9,12 +9,23 @@ namespace Rpg.Npc
     [Serializable]
     public sealed class VillageWorldReferenceSnapshot
     {
-        public int schemaVersion = 1;
+        public int schemaVersion = 2;
         public float capturedAtTime;
         public List<string> npcIds = new List<string>();
         public List<string> locationIds = new List<string>();
         public List<string> workIds = new List<string>();
+        public List<string> goalIds = new List<string>();
         public List<VillageNpcReferenceEntry> npcs = new List<VillageNpcReferenceEntry>();
+        public List<VillageRelationshipReferenceEntry> relationships = new List<VillageRelationshipReferenceEntry>();
+    }
+
+    [Serializable]
+    public sealed class VillageRelationshipReferenceEntry
+    {
+        public string subjectNpcId = string.Empty;
+        public string objectNpcId = string.Empty;
+        public string metric = string.Empty;
+        public float value;
     }
 
     [Serializable]
