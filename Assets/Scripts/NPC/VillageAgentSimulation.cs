@@ -149,7 +149,13 @@ namespace Rpg.Npc
                 GetActorCoinBalance);
         }
 
-        InventoryService ResolveInventory() => DialogueManager.Instance != null ? DialogueManager.Instance.Inventory : null;
+        InventoryService _inventoryOverrideForTests;
+
+        InventoryService ResolveInventory() =>
+            _inventoryOverrideForTests
+            ?? (DialogueManager.Instance != null ? DialogueManager.Instance.Inventory : null);
+
+        public void ConfigureInventoryForTests(InventoryService inventory) => _inventoryOverrideForTests = inventory;
 
         AgreementService ResolveAgreements() => DialogueManager.Instance != null ? DialogueManager.Instance.Agreements : null;
 
@@ -195,6 +201,364 @@ namespace Rpg.Npc
                 return byId != 0 ? byId : string.Compare(a.DisplayName, b.DisplayName, StringComparison.OrdinalIgnoreCase);
             });
         }
+
+        public readonly struct DebugLocationEntry
+        {
+            public DebugLocationEntry(string locationId, string displayName, string sceneAnchorName, bool hasSceneBinding)
+            {
+                LocationId = locationId ?? string.Empty;
+                DisplayName = displayName ?? string.Empty;
+                SceneAnchorName = sceneAnchorName ?? string.Empty;
+                HasSceneBinding = hasSceneBinding;
+            }
+
+            public string LocationId { get; }
+            public string DisplayName { get; }
+            public string SceneAnchorName { get; }
+            public bool HasSceneBinding { get; }
+        }
+
+        public readonly struct DebugItemEntry
+        {
+            public DebugItemEntry(string itemId, string displayName)
+            {
+                ItemId = itemId ?? string.Empty;
+                DisplayName = displayName ?? string.Empty;
+            }
+
+            public string ItemId { get; }
+            public string DisplayName { get; }
+        }
+
+        public void BuildDebugLocationEntryList(List<DebugLocationEntry> target)
+        {
+            if (target == null)
+                return;
+            target.Clear();
+            EnsureInitialized();
+
+            var labelsById = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var anchorsById = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var library = new NarrativeContentLibrary();
+            var catalog = library.LoadLocationCatalog();
+            if (catalog?.locations != null)
+            {
+                for (var i = 0; i < catalog.locations.Count; i++)
+                {
+                    var entry = catalog.locations[i];
+                    if (entry == null || string.IsNullOrWhiteSpace(entry.id))
+                        continue;
+                    var id = entry.id.Trim();
+                    labelsById[id] = string.IsNullOrWhiteSpace(entry.label) ? id : entry.label.Trim();
+                    if (!string.IsNullOrWhiteSpace(entry.sceneAnchorName))
+                        anchorsById[id] = entry.sceneAnchorName.Trim();
+                }
+            }
+
+            for (var i = 0; i < _staticLocationIds.Count; i++)
+            {
+                var id = _staticLocationIds[i];
+                if (string.IsNullOrWhiteSpace(id))
+                    continue;
+                labelsById.TryGetValue(id, out var label);
+                anchorsById.TryGetValue(id, out var anchorName);
+                var hasBinding = _locationRegistry != null
+                    && _locationRegistry.TryResolve(id, out var anchor)
+                    && anchor != null;
+                target.Add(new DebugLocationEntry(
+                    id,
+                    string.IsNullOrWhiteSpace(label) ? id : label,
+                    anchorName ?? string.Empty,
+                    hasBinding));
+            }
+
+            target.Sort((a, b) => string.Compare(a.LocationId, b.LocationId, StringComparison.OrdinalIgnoreCase));
+        }
+
+        public void BuildDebugItemEntryList(List<DebugItemEntry> target)
+        {
+            if (target == null)
+                return;
+            target.Clear();
+            var inventory = ResolveInventory();
+            if (inventory == null)
+                return;
+
+            var ids = inventory.GetAllKnownItemIds();
+            for (var i = 0; i < ids.Count; i++)
+            {
+                var id = ids[i];
+                if (string.IsNullOrWhiteSpace(id))
+                    continue;
+                var trimmed = id.Trim();
+                target.Add(new DebugItemEntry(trimmed, inventory.GetItemDisplayName(trimmed)));
+            }
+
+            target.Sort((a, b) => string.Compare(a.ItemId, b.ItemId, StringComparison.OrdinalIgnoreCase));
+        }
+
+        public void BuildDebugInventoryLinesForActor(string actorId, List<string> lines)
+        {
+            if (lines == null)
+                return;
+            lines.Clear();
+            if (string.IsNullOrWhiteSpace(actorId))
+            {
+                lines.Add("inventory: missing actor");
+                return;
+            }
+
+            var inventory = ResolveInventory();
+            if (inventory == null)
+            {
+                lines.Add("inventory: unavailable");
+                return;
+            }
+
+            inventory.EnsureActor(actorId);
+            lines.Add($"coins: {inventory.GetCoinBalance(actorId)}");
+            var view = inventory.GetInventoryView(actorId);
+            if (view == null || view.Count == 0)
+            {
+                lines.Add("items: (empty)");
+                return;
+            }
+
+            for (var i = 0; i < view.Count; i++)
+            {
+                var row = view[i];
+                if (row == null || string.IsNullOrWhiteSpace(row.itemId))
+                    continue;
+                var name = string.IsNullOrWhiteSpace(row.displayName) ? row.itemId : row.displayName;
+                lines.Add($"{row.itemId} · {name} x{row.quantity}");
+            }
+        }
+
+        public bool TryMoveNpcToLocationForDebug(string actorNpcId, string locationId, out string summary)
+        {
+            EnsureInitialized();
+            summary = string.Empty;
+            if (IsHeroParticipant(actorNpcId))
+            {
+                summary = "hero cannot use npc move plan";
+                return false;
+            }
+
+            if (!TryGetRuntimeState(actorNpcId, out var state) || state?.Controller == null)
+            {
+                summary = "unknown actor";
+                return false;
+            }
+
+            var step = new InteractionActionStep
+            {
+                actionType = InteractionActionTypes.MoveToLocation,
+                parameters = new Dictionary<string, string> { { "locationRef", locationId ?? string.Empty } }
+            };
+            var probe = CreateDebugAtomicProbeInstance(actorNpcId, string.Empty);
+            if (!ValidateInteractionStepReferences(probe, step, actorNpcId, string.Empty, out var refError))
+            {
+                summary = refError;
+                return false;
+            }
+
+            ApplyMoveToLocation(probe, step, actorNpcId);
+            summary = $"dispatched move_to_location → {locationId.Trim()}";
+            return true;
+        }
+
+        public bool TryMoveNpcToNpcForDebug(string actorNpcId, string targetNpcId, out string summary)
+        {
+            EnsureInitialized();
+            summary = string.Empty;
+            if (IsHeroParticipant(actorNpcId))
+            {
+                summary = "hero cannot use npc move plan";
+                return false;
+            }
+
+            if (!TryGetRuntimeState(actorNpcId, out _) || actorNpcId == null)
+            {
+                summary = "unknown actor";
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(targetNpcId)
+                || (!IsHeroParticipant(targetNpcId) && !TryGetRuntimeState(targetNpcId, out _)))
+            {
+                summary = "unknown target";
+                return false;
+            }
+
+            TryDispatchMoveToNpc(actorNpcId, targetNpcId);
+            summary = $"dispatched move_to_npc → {targetNpcId.Trim()}";
+            return true;
+        }
+
+        public bool TryMoveNpcToHeroForDebug(string actorNpcId, out string summary)
+        {
+            return TryMoveNpcToNpcForDebug(actorNpcId, InventoryService.HeroActorId, out summary);
+        }
+
+        public bool TryExchangeItemForDebug(
+            string fromActorId,
+            string toActorId,
+            string mode,
+            string itemId,
+            int quantity,
+            out string summary)
+        {
+            EnsureInitialized();
+            summary = string.Empty;
+            if (!ValidateDebugExchangeActors(fromActorId, toActorId, out summary))
+                return false;
+
+            var inventory = ResolveInventory();
+            if (inventory == null)
+            {
+                summary = "inventory unavailable";
+                return false;
+            }
+
+            if (!AreInteractionActorsInRange(fromActorId, toActorId))
+            {
+                summary = "actors not in range (move closer first)";
+                return false;
+            }
+
+            var normalizedMode = string.IsNullOrWhiteSpace(mode) ? "transfer" : mode.Trim().ToLowerInvariant();
+            if (normalizedMode == "transfer")
+            {
+                if (string.IsNullOrWhiteSpace(itemId))
+                {
+                    summary = "missing itemId";
+                    return false;
+                }
+
+                if (!inventory.IsKnownItem(itemId))
+                {
+                    summary = $"unknown itemId '{itemId}'";
+                    return false;
+                }
+
+                var qty = Mathf.Max(1, quantity);
+                inventory.EnsureActor(fromActorId);
+                inventory.EnsureActor(toActorId);
+                if (!inventory.TryTransfer(fromActorId, toActorId, itemId.Trim(), qty))
+                {
+                    summary = $"transfer failed ({itemId} x{qty})";
+                    return false;
+                }
+
+                summary = $"transferred {inventory.GetItemDisplayName(itemId)} x{qty}";
+                return true;
+            }
+
+            var step = new InteractionActionStep
+            {
+                actionType = InteractionActionTypes.ExchangeItem,
+                parameters = new Dictionary<string, string> { { "mode", normalizedMode } }
+            };
+            var probe = CreateDebugAtomicProbeInstance(fromActorId, toActorId);
+            var resolverFrom = normalizedMode == "steal_random_item" ? toActorId : fromActorId;
+            var resolverTo = normalizedMode == "steal_random_item" ? fromActorId : toActorId;
+            var result = InteractionEffectResolver.ApplyExchangeItem(
+                inventory,
+                probe,
+                step,
+                resolverFrom,
+                resolverTo);
+            summary = result.Summary;
+            return result.Success;
+        }
+
+        public bool TryExchangeCoinsForDebug(
+            string fromActorId,
+            string toActorId,
+            int amount,
+            string mode,
+            out string summary)
+        {
+            EnsureInitialized();
+            summary = string.Empty;
+            if (!ValidateDebugExchangeActors(fromActorId, toActorId, out summary))
+                return false;
+
+            var inventory = ResolveInventory();
+            if (inventory == null)
+            {
+                summary = "inventory unavailable";
+                return false;
+            }
+
+            if (!AreInteractionActorsInRange(fromActorId, toActorId))
+            {
+                summary = "actors not in range (move closer first)";
+                return false;
+            }
+
+            var normalizedMode = string.IsNullOrWhiteSpace(mode) ? "transfer" : mode.Trim().ToLowerInvariant();
+            var step = new InteractionActionStep
+            {
+                actionType = InteractionActionTypes.ExchangeCoins,
+                parameters = new Dictionary<string, string>
+                {
+                    { "mode", normalizedMode },
+                    { "amount", Mathf.Max(1, amount).ToString() }
+                }
+            };
+            var probe = CreateDebugAtomicProbeInstance(fromActorId, toActorId);
+            var result = InteractionEffectResolver.ApplyExchangeCoins(
+                inventory,
+                probe,
+                null,
+                step,
+                fromActorId,
+                toActorId,
+                _staticLocationIds,
+                ResolveAgreements());
+            summary = result.Summary;
+            return result.Success;
+        }
+
+        bool ValidateDebugExchangeActors(string fromActorId, string toActorId, out string summary)
+        {
+            summary = string.Empty;
+            if (string.IsNullOrWhiteSpace(fromActorId) || string.IsNullOrWhiteSpace(toActorId))
+            {
+                summary = "missing actor";
+                return false;
+            }
+
+            if (string.Equals(fromActorId, toActorId, StringComparison.OrdinalIgnoreCase))
+            {
+                summary = "from and to must differ";
+                return false;
+            }
+
+            if (!IsHeroParticipant(fromActorId) && !TryGetRuntimeState(fromActorId, out _))
+            {
+                summary = "unknown from actor";
+                return false;
+            }
+
+            if (!IsHeroParticipant(toActorId) && !TryGetRuntimeState(toActorId, out _))
+            {
+                summary = "unknown to actor";
+                return false;
+            }
+
+            return true;
+        }
+
+        static InteractionRuntimeInstance CreateDebugAtomicProbeInstance(string actorNpcId, string targetNpcId) =>
+            new InteractionRuntimeInstance
+            {
+                instanceId = "debug_atomic",
+                interactionId = "debug_atomic",
+                actorNpcId = actorNpcId ?? string.Empty,
+                targetNpcId = targetNpcId ?? string.Empty
+            };
 
         public sealed class HeroInteractionJoinContext
         {
