@@ -37,6 +37,10 @@ namespace Rpg.Player
             if (!Input.GetKeyDown(interactKey))
                 return;
 
+            var simulation = Object.FindFirstObjectByType<VillageAgentSimulation>(FindObjectsInactive.Exclude);
+            if (simulation != null && DialogueManager.Instance.TryStartNearbyInteractionDialogue(simulation, transform.position, interactionDistance))
+                return;
+
             var candidate = ResolveNearestNpcCandidate();
             if (candidate.definition == null || candidate.npcTransform == null)
                 return;

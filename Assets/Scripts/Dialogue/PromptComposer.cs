@@ -36,7 +36,8 @@ namespace Rpg.Dialogue
             List<string> goals = null,
             List<string> capabilities = null,
             string activePlanContext = null,
-            string activeGoalsContext = null)
+            string activeGoalsContext = null,
+            string multiPartyContextBlock = null)
         {
             var system = BuildSystemPrompt(
                 npc,
@@ -50,7 +51,8 @@ namespace Rpg.Dialogue
                 goals,
                 capabilities,
                 activePlanContext,
-                activeGoalsContext);
+                activeGoalsContext,
+                multiPartyContextBlock);
             var messages = new List<OllamaMessageDto>
             {
                 new OllamaMessageDto("system", system)
@@ -75,7 +77,8 @@ namespace Rpg.Dialogue
             List<string> goals = null,
             List<string> capabilities = null,
             string activePlanContext = null,
-            string activeGoalsContext = null)
+            string activeGoalsContext = null,
+            string multiPartyContextBlock = null)
         {
             var template = LoadTemplate("npc_system_template.txt");
             var facts = world.ToFactsBlock();
@@ -127,6 +130,8 @@ namespace Rpg.Dialogue
                 "- IMMEDIATE_SURROUNDINGS is a fresh scan within ~50m of your character in the world; use it when the player asks what is around, who is nearby, or what structures they can see. Do not invent specific nearby objects that are not listed.\n" +
                 "- If asked what you carry/own/trade, answer from NPC_INVENTORY only (do not invent missing items).\n" +
                 "- If proposing give/receive/trade/find actions, reference only item IDs from INVENTORY_CONTEXT.\n" +
+                "- Do not mention or propose retired phantom quest items (magic diamonds, portal cores, magic statues, hidden castles).\n" +
+                "- If MEMORY_BLOCK contains [interaction] entries, you may naturally reference those village social events when speaking to the hero.\n" +
                 "- NPCs may offer to guide the hero to catalog locations (like 'warehouse') or to another NPC's location.\n" +
                 "- Only trigger proposedNpcActions move_to_location after the hero explicitly agrees.\n" +
                 "- Sidekick NPCs can agree to follow the hero; only trigger proposedNpcActions follow_hero after the hero explicitly agrees.\n" +
@@ -139,7 +144,10 @@ namespace Rpg.Dialogue
                 "- Never accuse the hero of stealing YOUR chicken unless INVENTORY_CONTEXT explicitly supports that confrontation for this NPC_ID; if IS_GHOUL_STORY_NPC=true, never mention chicken theft.\n" +
                 "- When speaking, prefer one clear next-step tied to a visible milestone or NPC goal.\n" +
                 "- At some point in natural conversation, all NPCs should mention that magic is contained in books and that some locations feel more magical than others.\n" +
-                "- If NPC_TYPE is sidekick, also mention that sidekicks know magic and groups of 3 or more magicians together can cast the most powerful spell.\n";
+                "- If NPC_TYPE is sidekick, also mention that sidekicks know magic and groups of 3 or more magicians together can cast the most powerful spell.\n" +
+                (string.IsNullOrWhiteSpace(multiPartyContextBlock)
+                    ? string.Empty
+                    : "\n\nMULTI_PARTY_CONTEXT:\n" + multiPartyContextBlock.Trim() + "\n");
         }
 
         static string SafeInline(string value) => string.IsNullOrWhiteSpace(value) ? "(none)" : value.Trim();

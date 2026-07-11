@@ -158,12 +158,60 @@ class NpcDeliberationRequest(StrictCamelModel):
     schema_version: int = SCHEMA_VERSION
     request_id: str = ""
     model: str
-    npc_id: str
-    goal: str
+    npc_id: str = ""
+    goal: str = ""
     max_steps: int = Field(default=4, ge=1, le=12)
     targets: DeliberationTargets = Field(default_factory=DeliberationTargets)
     api_token: Optional[str] = None
     provider_base_url: Optional[str] = None
+    # Legacy Unity payload compatibility:
+    # { reason, npc: { npcId }, currentGoals, currentPlan, agreements }
+    reason: str = ""
+    npc: Optional[dict] = None
+    world: Optional[dict] = None
+    current_goals: List[str] = Field(default_factory=list)
+    current_plan: List[dict] = Field(default_factory=list)
+    agreements: List[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _normalize_legacy_payload(self) -> "NpcDeliberationRequest":
+        if not self.npc_id and isinstance(self.npc, dict):
+            npc_id = str(self.npc.get("npcId") or self.npc.get("npc_id") or "").strip()
+            if npc_id:
+                self.npc_id = npc_id
+
+        if not self.goal:
+            if self.current_goals:
+                candidate = str(self.current_goals[0] or "").strip()
+                if candidate:
+                    self.goal = candidate
+            if not self.goal:
+                fallback = str(self.reason or "").strip()
+                self.goal = fallback or "continue current routine"
+
+        # Best-effort extraction of target IDs from legacy currentPlan payload.
+        if self.current_plan and not (
+            self.targets.location_ids or self.targets.npc_ids or self.targets.work_ids
+        ):
+            npc_ids: List[str] = []
+            work_ids: List[str] = []
+            for step in self.current_plan:
+                if not isinstance(step, dict):
+                    continue
+                npc_id = str(step.get("targetNpcId") or step.get("target_npc_id") or "").strip()
+                if npc_id and npc_id not in npc_ids:
+                    npc_ids.append(npc_id)
+                work_id = str(step.get("workId") or step.get("work_id") or "").strip()
+                if work_id and work_id not in work_ids:
+                    work_ids.append(work_id)
+            if npc_ids:
+                self.targets.npc_ids = npc_ids
+            if work_ids:
+                self.targets.work_ids = work_ids
+
+        if not self.npc_id:
+            raise ValueError("npcId is required.")
+        return self
 
 
 class TtsSynthesizeRequest(StrictCamelModel):
@@ -174,6 +222,17 @@ class TtsSynthesizeRequest(StrictCamelModel):
     language: str = "english"
     quantize: bool = True
     speaker_role: Literal["npc", "hero", "system"] = "npc"
+
+
+class InteractionLineRequest(StrictCamelModel):
+    schema_version: int = SCHEMA_VERSION
+    request_id: str = ""
+    model: str
+    npc_id: str = ""
+    display_name: str = ""
+    prompt: str
+    api_token: Optional[str] = None
+    provider_base_url: Optional[str] = None
 
 
 # --- LLM-output single source of truth --------------------------------------
@@ -315,8 +374,21 @@ class NpcDeliberationResponse(CamelModel):
     schema_version: int = SCHEMA_VERSION
     request_id: str = ""
     steps: List[NpcPlanStep] = Field(default_factory=list)
+    proposed_interactions: List[dict] = Field(default_factory=list)
     used_fallback: bool = False
     raw_assistant: str = ""
+    # Legacy Unity response compatibility.
+    npc_id: str = ""
+    goals: List[str] = Field(default_factory=list)
+    plan_steps: List[NpcPlanStep] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _sync_legacy_steps(self) -> "NpcDeliberationResponse":
+        if self.steps and not self.plan_steps:
+            self.plan_steps = list(self.steps)
+        elif self.plan_steps and not self.steps:
+            self.steps = list(self.plan_steps)
+        return self
 
 
 class TtsSynthesizeResponse(CamelModel):
@@ -329,6 +401,13 @@ class TtsSynthesizeResponse(CamelModel):
     rtf: float = 0.0
     time_to_first_chunk_ms: int = 0
     speaker_role: Literal["npc", "hero", "system"] = "npc"
+
+
+class InteractionLineResponse(CamelModel):
+    schema_version: int = SCHEMA_VERSION
+    request_id: str = ""
+    say: str
+    raw_assistant: str = ""
 
 
 class PolicyError(CamelModel):
@@ -345,10 +424,11 @@ class PolicyEnvelope(CamelModel):
     persona: Optional[NpcPersonaGenerationResponse] = None
     deliberation: Optional[NpcDeliberationResponse] = None
     tts: Optional[TtsSynthesizeResponse] = None
+    interaction: Optional[InteractionLineResponse] = None
 
     @model_validator(mode="after")
     def _check_payload(self) -> "PolicyEnvelope":
-        payloads = [self.dialogue, self.summary, self.narrative, self.persona, self.deliberation, self.tts]
+        payloads = [self.dialogue, self.summary, self.narrative, self.persona, self.deliberation, self.tts, self.interaction]
         if self.ok and not any(payloads):
             raise ValueError("Successful envelope must include a payload.")
         if not self.ok and self.error is None:

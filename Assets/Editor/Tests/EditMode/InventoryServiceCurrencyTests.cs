@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using NUnit.Framework;
 using Rpg.Dialogue;
@@ -104,6 +105,50 @@ namespace Rpg.Dialogue.Tests.EditMode
             Assert.IsFalse(ok);
             Assert.IsTrue(service.HasAtLeast("quest_board", InventoryService.CoinItemId, 2));
             Assert.IsFalse(service.HasAtLeast("hero_worker", InventoryService.CoinItemId, 1));
+        }
+
+        [Test]
+        public void EnsureVillageNpcWallets_SeedsTypicalAndWealthyBalances()
+        {
+            var service = NewService();
+            var npcs = new List<string>();
+            for (var i = 0; i < 8; i++)
+                npcs.Add($"npc_wallet_{i}");
+
+            service.EnsureVillageNpcWallets(npcs, wealthyNpcCount: 2);
+
+            var wealthy = 0;
+            for (var i = 0; i < npcs.Count; i++)
+            {
+                var balance = service.GetCoinBalance(npcs[i]);
+                Assert.GreaterOrEqual(balance, 0);
+                if (balance >= 50)
+                    wealthy++;
+            }
+
+            Assert.AreEqual(2, wealthy);
+            for (var i = 0; i < npcs.Count; i++)
+            {
+                var balance = service.GetCoinBalance(npcs[i]);
+                if (balance < 50)
+                    Assert.LessOrEqual(balance, 10);
+            }
+        }
+
+        [Test]
+        public void TryStealRandomItem_MovesNonCoinItem()
+        {
+            var service = NewService();
+            service.EnsureActor("npc_thief");
+            service.EnsureActor("npc_victim");
+            service.AddItem("npc_victim", "book_1", 1);
+
+            var ok = service.TryStealRandomItem("npc_victim", "npc_thief", out _, out var display);
+
+            Assert.IsTrue(ok);
+            Assert.IsFalse(string.IsNullOrWhiteSpace(display));
+            Assert.IsTrue(service.HasAtLeast("npc_thief", "book_1", 1));
+            Assert.IsFalse(service.HasAtLeast("npc_victim", "book_1", 1));
         }
 
         InventoryService NewService()

@@ -47,6 +47,12 @@ namespace Rpg.Dialogue
             return PostAsync(path, request, token);
         }
 
+        public Task<PythonPolicyEnvelopeDto> InteractionLineAsync(PythonInteractionLineRequestDto request, CancellationToken token)
+        {
+            var path = "/v1/interaction/line";
+            return PostAsync(path, request, token);
+        }
+
         Task<PythonPolicyEnvelopeDto> PostAsync<T>(string path, T payload, CancellationToken cancellationToken)
         {
             if (_settings == null)

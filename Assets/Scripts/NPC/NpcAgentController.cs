@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Rpg.Core;
 using Rpg.Dialogue;
 using UnityEngine;
 
@@ -404,6 +405,14 @@ namespace Rpg.Npc
             return false;
         }
 
+        public void RefreshActiveMoveTarget(Vector3 worldLocation)
+        {
+            if (_activeStep == null)
+                return;
+            _activeStep.WorldLocation = worldLocation;
+            _activeMoveTarget = SnapToGround(worldLocation, transform.position.y);
+        }
+
         void CompleteStep(bool success)
         {
             LastStepCompletionState = success ? NpcAgentStepCompletionState.Succeeded : NpcAgentStepCompletionState.Failed;
@@ -429,6 +438,19 @@ namespace Rpg.Npc
             target = null;
             if (string.IsNullOrWhiteSpace(npcId))
                 return false;
+
+            if (string.Equals(npcId.Trim(), InventoryService.HeroActorId, StringComparison.OrdinalIgnoreCase))
+            {
+                var heroGo = GameObject.FindGameObjectWithTag(GameConstants.PlayerTag);
+                if (heroGo != null)
+                {
+                    _activeNpcTarget = heroGo.transform;
+                    target = _activeNpcTarget;
+                    return true;
+                }
+
+                return false;
+            }
 
             foreach (var b in FindObjectsByType<NpcDialogueBinding>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
             {

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "requirements": [
     {
-      "id": "trade_magic_book",
+      "id": "trade_clue_book",
       "ownerNpcId": "npc_1_mara",
       "givesItemId": "book_v1",
       "wantsItemId": "knife_v1",
@@ -10,12 +10,12 @@
       "notes": "Hero must secure blade first, then negotiate for book."
     },
     {
-      "id": "trade_portal_core",
+      "id": "trade_lantern_book",
       "ownerNpcId": "npc_2_dorian",
-      "givesItemId": "portal_core",
+      "givesItemId": "book_2",
       "wantsItemId": "lantern_v2",
-      "unlocks": "Portal activation preparation",
-      "notes": "Critical trade before final castle sequence."
+      "unlocks": "Castle route clue",
+      "notes": "Exchange practical gear for a second clue book."
     },
     {
       "id": "trade_support_supply",

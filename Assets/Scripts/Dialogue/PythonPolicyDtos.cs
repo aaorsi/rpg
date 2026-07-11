@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Rpg.Npc;
 
 namespace Rpg.Dialogue
 {
@@ -164,11 +165,23 @@ namespace Rpg.Dialogue
     }
 
     [Serializable]
+    public sealed class PythonDeliberationTargetsDto
+    {
+        public List<string> locationIds = new List<string>();
+        public List<string> npcIds = new List<string>();
+        public List<string> workIds = new List<string>();
+    }
+
+    [Serializable]
     public sealed class PythonNpcDeliberationRequestDto
     {
         public int schemaVersion = 1;
         public string requestId;
         public string model;
+        public string npcId;
+        public string goal;
+        public int maxSteps = 4;
+        public PythonDeliberationTargetsDto targets = new PythonDeliberationTargetsDto();
         public string reason;
         public PythonNpcDeliberationNpcDto npc;
         public PythonNpcDeliberationWorldDto world;
@@ -187,6 +200,7 @@ namespace Rpg.Dialogue
         public string npcId;
         public List<string> goals = new List<string>();
         public List<PythonNpcPlanStepDto> planSteps = new List<PythonNpcPlanStepDto>();
+        public List<InteractionDefinition> proposedInteractions = new List<InteractionDefinition>();
         public string rawAssistant;
     }
 
@@ -217,6 +231,28 @@ namespace Rpg.Dialogue
     }
 
     [Serializable]
+    public sealed class PythonInteractionLineRequestDto
+    {
+        public int schemaVersion = 1;
+        public string requestId;
+        public string model;
+        public string npcId;
+        public string displayName;
+        public string prompt;
+        public string apiToken;
+        public string providerBaseUrl;
+    }
+
+    [Serializable]
+    public sealed class PythonInteractionLineResponseDto
+    {
+        public int schemaVersion = 1;
+        public string requestId;
+        public string say;
+        public string rawAssistant;
+    }
+
+    [Serializable]
     public sealed class PythonPolicyErrorDto
     {
         public string code;
@@ -233,5 +269,6 @@ namespace Rpg.Dialogue
         public PythonNarrativeResponseDto narrative;
         public PythonNpcDeliberationResponseDto deliberation;
         public PythonTtsSynthesizeResponseDto tts;
+        public PythonInteractionLineResponseDto interaction;
     }
 }

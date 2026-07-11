@@ -60,6 +60,83 @@ namespace Rpg.Npc
                 $"opinion: hero={summary.OpinionTowardHero:0.0}, leadership={summary.AggregateLeadership:0.0}, piety={summary.AggregatePiety:0.0}, wealth={summary.AggregateWealth:0.0}, helpfulness={summary.AggregateHelpfulness:0.0}";
         }
 
+        public static IReadOnlyList<string> BuildInteractionDebugLines(
+            InteractionRuntimeInstance instance,
+            Func<string, string> resolveDisplayName,
+            Func<string, int> resolveCoinBalance)
+        {
+            var lines = new List<string>();
+            if (instance == null)
+            {
+                lines.Add("interaction: (none)");
+                return lines;
+            }
+
+            var initiator = FormatParticipant(instance.actorNpcId, resolveDisplayName, resolveCoinBalance);
+            var target = FormatParticipant(instance.targetNpcId, resolveDisplayName, resolveCoinBalance);
+            var activity = string.IsNullOrWhiteSpace(instance.interactionDisplayName)
+                ? instance.interactionId
+                : instance.interactionDisplayName.Trim();
+            var goal = string.IsNullOrWhiteSpace(instance.interactionGoal)
+                ? InteractionEffectResolver.ResolveInteractionGoalFromId(instance.interactionId)
+                : instance.interactionGoal.Trim();
+
+            lines.Add($"initiator: {initiator}");
+            lines.Add($"activity: {activity}");
+            lines.Add($"target: {target}");
+            lines.Add($"goal: {goal}");
+            lines.Add($"status: {instance.status} ({instance.statusReason})");
+
+            if (!string.IsNullOrWhiteSpace(instance.currentActionType))
+            {
+                var actor = resolveDisplayName != null ? resolveDisplayName(instance.currentActionActorId) : instance.currentActionActorId;
+                var actionTarget = resolveDisplayName != null ? resolveDisplayName(instance.currentActionTargetId) : instance.currentActionTargetId;
+                lines.Add($"current step: {instance.phase} / {instance.currentActionType} ({actor} -> {actionTarget})");
+            }
+
+            if (!string.IsNullOrWhiteSpace(instance.assignedErrand))
+                lines.Add($"errand: {instance.assignedErrand.Trim()}");
+
+            if (instance.stepLog != null && instance.stepLog.Count > 0)
+            {
+                var recent = instance.stepLog[instance.stepLog.Count - 1];
+                lines.Add($"last effect: {recent}");
+                if (instance.stepLog.Count > 1)
+                    lines.Add($"effects: {string.Join(" | ", instance.stepLog)}");
+            }
+
+            if (instance.status != InteractionRuntimeStatus.Running)
+            {
+                var outcome = string.IsNullOrWhiteSpace(instance.outcomeSummary)
+                    ? (string.IsNullOrWhiteSpace(instance.resolvedOutcomeId) ? "(pending)" : instance.resolvedOutcomeId)
+                    : instance.outcomeSummary.Trim();
+                lines.Add($"outcome: {outcome}");
+                if (instance.targetIsFollower)
+                    lines.Add("flag: target is follower");
+            }
+            else
+            {
+                lines.Add("outcome: (in progress)");
+            }
+
+            return lines;
+        }
+
+        static string FormatParticipant(
+            string actorId,
+            Func<string, string> resolveDisplayName,
+            Func<string, int> resolveCoinBalance)
+        {
+            if (string.IsNullOrWhiteSpace(actorId))
+                return "(none)";
+            var id = actorId.Trim();
+            var name = resolveDisplayName != null ? resolveDisplayName(id) : id;
+            var coins = resolveCoinBalance != null ? resolveCoinBalance(id) : 0;
+            if (string.Equals(id, InventoryService.HeroActorId, StringComparison.OrdinalIgnoreCase))
+                return $"{name} [hero] ({coins} coins)";
+            return $"{name} ({id}, {coins} coins)";
+        }
+
         static string Clean(string value)
         {
             return string.IsNullOrWhiteSpace(value) ? "n/a" : value.Trim();

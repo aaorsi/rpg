@@ -54,6 +54,8 @@ namespace Rpg.UI
         Button _decisionNo;
         ScrollRect _scroll;
         Coroutine _typewriterCo;
+        bool _conversationLogMode;
+        readonly System.Text.StringBuilder _conversationLog = new System.Text.StringBuilder(2048);
         AudioSource _uiSfxSource;
         AudioClip _dialogueOpenCloseSfx;
         AudioClip _inventoryOpenCloseSfx;
@@ -137,6 +139,8 @@ namespace Rpg.UI
             if (_inventoryStripBackdrop != null)
                 _inventoryStripBackdrop.gameObject.SetActive(showInventoryDebug);
             StopTypewriter();
+            _conversationLogMode = false;
+            _conversationLog.Clear();
             if (_playerEcho != null)
                 _playerEcho.text = string.Empty;
             if (_npcBody != null)
@@ -224,9 +228,64 @@ namespace Rpg.UI
             _playerEcho.text = string.IsNullOrEmpty(t) ? string.Empty : $"You: {t}";
         }
 
-        /// <summary>NPC line replaces the previous one and reveals letter-by-letter.</summary>
+        public void BeginConversationLog(string title, bool clearExisting = true)
+        {
+            _conversationLogMode = true;
+            if (clearExisting)
+                _conversationLog.Clear();
+            if (_panelRoot != null && _panelRoot.activeSelf)
+            {
+                if (_title != null)
+                    _title.text = string.IsNullOrWhiteSpace(title) ? "Conversation" : title;
+                if (clearExisting && _npcBody != null)
+                    _npcBody.text = string.Empty;
+                RefreshDialogueLayout();
+                return;
+            }
+
+            Open(title);
+            if (_npcBody != null)
+                _npcBody.text = clearExisting ? string.Empty : _conversationLog.ToString();
+        }
+
+        /// <summary>Appends a colored speaker line to the scrolling conversation log.</summary>
+        public void AppendSpeakerLine(string speakerDisplayName, string text, string colorHex)
+        {
+            if (_npcBody == null)
+                return;
+            StopTypewriter();
+            var speaker = string.IsNullOrWhiteSpace(speakerDisplayName) ? string.Empty : speakerDisplayName.Trim();
+            var body = (text ?? string.Empty).TrimEnd();
+            if (string.IsNullOrWhiteSpace(speaker))
+            {
+                if (body.Length > 0)
+                    _conversationLog.AppendLine(body);
+                else
+                    _conversationLog.AppendLine("(…)");
+            }
+            else
+            {
+                var color = string.IsNullOrWhiteSpace(colorHex) ? "#E8EBF5" : colorHex.Trim();
+                if (!color.StartsWith("#", StringComparison.Ordinal))
+                    color = "#" + color;
+                _conversationLog.Append("<color=").Append(color).Append("><b>").Append(speaker).Append(":</b></color> ");
+                if (body.Length > 0)
+                    _conversationLog.AppendLine(body);
+                else
+                    _conversationLog.AppendLine("(…)");
+            }
+            _npcBody.text = _conversationLog.ToString();
+            RefreshDialogueLayout();
+        }
+
+        /// <summary>NPC line replaces the previous one and reveals letter-by-letter (single-speaker mode).</summary>
         public void AppendNpcLine(string text)
         {
+            if (_conversationLogMode)
+            {
+                AppendSpeakerLine(string.Empty, text, "#E8EBF5");
+                return;
+            }
             if (_npcBody == null)
                 return;
             StopTypewriter();

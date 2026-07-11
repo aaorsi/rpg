@@ -38,6 +38,7 @@ namespace Rpg.Dialogue
             var progression = _library.LoadCoreProgression();
             var npcKnowledge = _library.LoadNpcKnowledge();
             var tradeRequirements = _library.LoadTradeRequirements();
+            var catalog = _library.LoadObjectArtifactCatalog();
             var archetypes = _library.LoadNpcArchetypes().archetypes;
             var rng = new System.Random(seed);
 
@@ -76,12 +77,15 @@ namespace Rpg.Dialogue
                     .Take(12)
                     .ToList(),
                 finalObjective = string.IsNullOrWhiteSpace(progression.finalObjective)
-                    ? "Collect allies and key items, defeat the Ghoul in the castle, and reach the portal."
+                    ? "Collect allies and required supplies, defeat the Ghoul in the castle, and reach the portal."
                     : progression.finalObjective,
                 victorySequence = (progression.victorySequence ?? new List<string>())
                     .Where(x => !string.IsNullOrWhiteSpace(x))
                     .ToList(),
-                tradeRequirements = tradeRequirements.requirements ?? new List<TradeRequirementEntry>()
+                tradeRequirements = FilterTradeRequirements(
+                    tradeRequirements.requirements ?? new List<TradeRequirementEntry>(),
+                    npcIds,
+                    CollectKnownItemIds(catalog))
             };
 
             foreach (var m in coreMilestones)
@@ -158,6 +162,7 @@ namespace Rpg.Dialogue
             }
 
             ValidateAndRepair(canon);
+            NarrativePhantomReferenceFilter.SanitizeCanon(canon, _refs, npcIds, catalog);
             if (_refs != null)
             {
                 var issues = _refs.ValidateCanon(canon);
@@ -166,6 +171,78 @@ namespace Rpg.Dialogue
             }
             DialogueTelemetry.Log("NarrativeFallbackGenerated", $"seed={seed}, npcs={canon.npcProfiles.Count}");
             return canon;
+        }
+
+        static List<TradeRequirementEntry> FilterTradeRequirements(
+            IReadOnlyList<TradeRequirementEntry> source,
+            IReadOnlyList<string> npcIds,
+            HashSet<string> validItemIds)
+        {
+            var filtered = new List<TradeRequirementEntry>();
+            if (source == null || source.Count == 0)
+                return filtered;
+
+            var validNpcIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (npcIds != null)
+            {
+                for (var i = 0; i < npcIds.Count; i++)
+                {
+                    var id = npcIds[i];
+                    if (!string.IsNullOrWhiteSpace(id))
+                        validNpcIds.Add(id.Trim());
+                }
+            }
+
+            for (var i = 0; i < source.Count; i++)
+            {
+                var req = source[i];
+                if (req == null)
+                    continue;
+                if (string.IsNullOrWhiteSpace(req.ownerNpcId) || string.IsNullOrWhiteSpace(req.givesItemId) || string.IsNullOrWhiteSpace(req.wantsItemId))
+                    continue;
+                var ownerNpcId = req.ownerNpcId.Trim();
+                var givesItemId = req.givesItemId.Trim();
+                var wantsItemId = req.wantsItemId.Trim();
+                if (validNpcIds.Count > 0 && !validNpcIds.Contains(ownerNpcId))
+                    continue;
+                if (validItemIds.Count > 0 && (!validItemIds.Contains(givesItemId) || !validItemIds.Contains(wantsItemId)))
+                    continue;
+
+                filtered.Add(new TradeRequirementEntry
+                {
+                    id = req.id,
+                    ownerNpcId = ownerNpcId,
+                    givesItemId = givesItemId,
+                    wantsItemId = wantsItemId,
+                    unlocks = req.unlocks,
+                    notes = req.notes
+                });
+            }
+
+            return filtered;
+        }
+
+        static HashSet<string> CollectKnownItemIds(ObjectArtifactCatalogDoc catalog)
+        {
+            var known = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (catalog == null)
+                return known;
+            AddCatalogIds(catalog.objects, known);
+            AddCatalogIds(catalog.artifacts, known);
+            return known;
+        }
+
+        static void AddCatalogIds(IReadOnlyList<CatalogEntry> entries, HashSet<string> known)
+        {
+            if (entries == null || known == null)
+                return;
+            for (var i = 0; i < entries.Count; i++)
+            {
+                var entry = entries[i];
+                if (entry == null || string.IsNullOrWhiteSpace(entry.id))
+                    continue;
+                known.Add(entry.id.Trim());
+            }
         }
 
         public async Task<NarrativeSessionCanon> GenerateOrFallbackAsync(int seed, IReadOnlyList<string> npcIds, CancellationToken token)
@@ -203,6 +280,11 @@ namespace Rpg.Dialogue
                         continue;
                     if (!ValidateAndRepair(parsed))
                         continue;
+                    NarrativePhantomReferenceFilter.SanitizeCanon(
+                        parsed,
+                        _refs,
+                        npcIds,
+                        _library.LoadObjectArtifactCatalog());
                     if (_refs != null)
                     {
                         var issues = _refs.ValidateCanon(parsed);
@@ -236,6 +318,7 @@ namespace Rpg.Dialogue
         {
             return
                 "Generate a coherent narrative session from this seed scaffold. Keep all milestone route counts >= 2, preserve the core win condition (followers -> castle -> Ghoul -> portal), and keep JSON shape intact.\n" +
+                "Use only NPC ids, item ids, and location ids already present in the scaffold. Do not invent phantom quest items (no magic diamonds, portal cores, magic statues, or hidden castles).\n" +
                 JsonConvert.SerializeObject(fallback, Formatting.Indented);
         }
 
@@ -256,7 +339,7 @@ namespace Rpg.Dialogue
             if (string.IsNullOrWhiteSpace(canon.worldId))
                 canon.worldId = "island_world";
             if (string.IsNullOrWhiteSpace(canon.finalObjective))
-                canon.finalObjective = "Collect allies and key items, defeat the Ghoul in the castle, and reach the portal.";
+                canon.finalObjective = "Collect allies and required supplies, defeat the Ghoul in the castle, and reach the portal.";
             if (canon.openingIntroLines.Count == 0)
                 canon.openingIntroLines.Add("You awaken on a hostile island and must seek help to survive.");
             if (canon.globalKnowledge.Count == 0)
