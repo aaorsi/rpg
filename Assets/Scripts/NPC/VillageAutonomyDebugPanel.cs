@@ -18,7 +18,6 @@ namespace Rpg.Npc
 
         VillageAgentSimulation _simulation;
         Vector2 _scroll;
-        Vector2 _villagerScroll;
         bool _visible;
         GUIStyle _titleStyle;
         GUIStyle _lineStyle;
@@ -53,9 +52,6 @@ namespace Rpg.Npc
         string _coinTransferMode = "transfer";
         bool _showLocationDropdown;
         bool _showItemDropdown;
-        Vector2 _catalogScroll;
-        Vector2 _locationDropdownScroll;
-        Vector2 _itemDropdownScroll;
         readonly List<VillageAgentSimulation.DebugLocationEntry> _locationOptions = new List<VillageAgentSimulation.DebugLocationEntry>();
         readonly List<VillageAgentSimulation.DebugItemEntry> _itemOptions = new List<VillageAgentSimulation.DebugItemEntry>();
         readonly List<string> _inventoryLines = new List<string>();
@@ -64,7 +60,7 @@ namespace Rpg.Npc
         string _interactionFilterType = string.Empty;
         string _proposedPromoteId = string.Empty;
         bool _showInvalidInteractionsOnly;
-        Vector2 _rejectEventScroll;
+        readonly List<VillageAgentSimulation.DebugNpcEntry> _npcOptions = new List<VillageAgentSimulation.DebugNpcEntry>();
 
         void Awake()
         {
@@ -135,7 +131,6 @@ namespace Rpg.Npc
             EnsureLocationSelection(_locationOptions);
             EnsureItemSelection(_itemOptions);
 
-            _catalogScroll = GUILayout.BeginScrollView(_catalogScroll, GUILayout.Height(160f));
             GUILayout.Label($"NPCs ({CountFilteredNpcEntries()})", _lineStyle);
             for (var i = 0; i < _npcOptions.Count; i++)
             {
@@ -165,7 +160,6 @@ namespace Rpg.Npc
                     continue;
                 GUILayout.Label($"  {entry.ItemId} · {entry.DisplayName}", _lineStyle);
             }
-            GUILayout.EndScrollView();
 
             if (!string.IsNullOrWhiteSpace(_selectedNpcId))
             {
@@ -301,9 +295,6 @@ namespace Rpg.Npc
             GUILayout.BeginHorizontal();
             GUILayout.Space(76f);
             GUILayout.BeginVertical(GUI.skin.box);
-            _locationDropdownScroll = GUILayout.BeginScrollView(
-                _locationDropdownScroll,
-                GUILayout.Height(Mathf.Min(160f, entries.Count * 22f + 8f)));
             for (var i = 0; i < entries.Count; i++)
             {
                 var entry = entries[i];
@@ -318,7 +309,6 @@ namespace Rpg.Npc
                     _showLocationDropdown = false;
                 }
             }
-            GUILayout.EndScrollView();
             GUILayout.EndVertical();
             GUILayout.EndHorizontal();
         }
@@ -341,9 +331,6 @@ namespace Rpg.Npc
             GUILayout.BeginHorizontal();
             GUILayout.Space(76f);
             GUILayout.BeginVertical(GUI.skin.box);
-            _itemDropdownScroll = GUILayout.BeginScrollView(
-                _itemDropdownScroll,
-                GUILayout.Height(Mathf.Min(160f, entries.Count * 22f + 8f)));
             for (var i = 0; i < entries.Count; i++)
             {
                 var entry = entries[i];
@@ -358,7 +345,6 @@ namespace Rpg.Npc
                     _showItemDropdown = false;
                 }
             }
-            GUILayout.EndScrollView();
             GUILayout.EndVertical();
             GUILayout.EndHorizontal();
         }
@@ -733,7 +719,6 @@ namespace Rpg.Npc
                 return;
             }
 
-            _rejectEventScroll = GUILayout.BeginScrollView(_rejectEventScroll, GUILayout.Height(100f));
             for (var i = events.Count - 1; i >= 0; i--)
             {
                 var entry = events[i];
@@ -741,7 +726,6 @@ namespace Rpg.Npc
                     $"{entry.InteractionId} [{entry.InteractionInstanceId}] actor={entry.ActorNpcId} reason={entry.Reason}",
                     _lineStyle);
             }
-            GUILayout.EndScrollView();
             GUILayout.Space(4f);
         }
 
@@ -775,7 +759,6 @@ namespace Rpg.Npc
                 return;
             }
 
-            _villagerScroll = GUILayout.BeginScrollView(_villagerScroll, GUILayout.Height(280f));
             for (var i = 0; i < active.Count; i++)
             {
                 var entry = active[i];
@@ -799,7 +782,6 @@ namespace Rpg.Npc
 
                 GUILayout.Space(6f);
             }
-            GUILayout.EndScrollView();
         }
 
         bool ShouldShowInteractionRow(InteractionRuntimeInstance entry)
@@ -968,7 +950,6 @@ namespace Rpg.Npc
             GUILayout.BeginHorizontal();
             GUILayout.Space(76f);
             GUILayout.BeginVertical(GUI.skin.box);
-            dropdownScroll = GUILayout.BeginScrollView(dropdownScroll, GUILayout.Height(Mathf.Min(180f, entries.Count * 22f + 8f)));
             for (var i = 0; i < entries.Count; i++)
             {
                 var entry = entries[i];
@@ -981,7 +962,6 @@ namespace Rpg.Npc
                     showDropdown = false;
                 }
             }
-            GUILayout.EndScrollView();
             GUILayout.EndVertical();
             GUILayout.EndHorizontal();
         }
