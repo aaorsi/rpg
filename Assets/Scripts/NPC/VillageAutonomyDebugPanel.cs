@@ -61,10 +61,12 @@ namespace Rpg.Npc
         string _proposedPromoteId = string.Empty;
         bool _showInvalidInteractionsOnly;
         readonly List<VillageAgentSimulation.DebugNpcEntry> _npcOptions = new List<VillageAgentSimulation.DebugNpcEntry>();
+        Rect _windowRect;
 
         void Awake()
         {
             _visible = startVisible;
+            _windowRect = BuildDefaultWindowRect();
         }
 
         public void Configure(VillageAgentSimulation simulation)
@@ -77,7 +79,21 @@ namespace Rpg.Npc
             if (!debugPanelEnabled || !IsBuildSupported())
                 return;
             if (Input.GetKeyDown(toggleKey))
+            {
                 _visible = !_visible;
+                if (!_visible)
+                    CloseAllDropdowns();
+            }
+        }
+
+        void CloseAllDropdowns()
+        {
+            _showNpcDropdownA = false;
+            _showNpcDropdownB = false;
+            _showInteractionDropdown = false;
+            _showGroupAudienceDropdown = false;
+            _showLocationDropdown = false;
+            _showItemDropdown = false;
         }
 
         void OnGUI()
@@ -85,6 +101,18 @@ namespace Rpg.Npc
             if (!debugPanelEnabled || !_visible || !IsBuildSupported())
                 return;
 
+            if (ResolveSimulation() == null)
+                return;
+
+            if (_windowRect.width <= 1f || _windowRect.height <= 1f)
+                _windowRect = BuildDefaultWindowRect();
+
+            _windowRect = ClampWindowRect(_windowRect);
+            _windowRect = GUI.Window(GetInstanceID(), _windowRect, DrawDebugWindow, "Village Autonomy Debug");
+        }
+
+        void DrawDebugWindow(int windowId)
+        {
             var simulation = ResolveSimulation();
             if (simulation == null)
                 return;
@@ -92,29 +120,60 @@ namespace Rpg.Npc
             EnsureStyles();
             simulation.BuildDebugNpcEntryList(_npcOptions);
             var telemetry = simulation.TelemetrySnapshot;
-            var rect = new Rect(
-                Screen.width - Mathf.Max(280f, width) - anchorOffset.x,
-                anchorOffset.y,
-                Mathf.Max(280f, width),
-                Mathf.Clamp(maxHeight, 200f, Screen.height - (anchorOffset.y * 2f)));
+            var scrollHeight = Mathf.Max(120f, _windowRect.height - 48f);
 
-            GUILayout.BeginArea(rect, GUI.skin.box);
-            _scroll = GUILayout.BeginScrollView(_scroll);
-            GUILayout.Label("Village Autonomy Debug", _titleStyle);
             GUILayout.Label(
                 $"deliberations={telemetry.DeliberationCalls}, fallback={telemetry.FallbackCalls} ({telemetry.FallbackRate:P1}), plans ok={telemetry.PlanCompletionsSucceeded}, plans failed={telemetry.PlanCompletionsFailed}",
                 _lineStyle);
             GUILayout.Label($"npcs={_npcOptions.Count}  (toggle: {toggleKey})", _lineStyle);
-            DrawWorldCatalogSection(simulation);
-            DrawPrimaryNpcSelectors(simulation);
-            DrawAtomicActionControls(simulation);
-            DrawInteractionControls(simulation);
-            DrawProposedInteractionControls(simulation);
-            DrawPerNpcControls(simulation);
-            DrawInteractionOverview(simulation);
-            DrawRejectEventLog(simulation);
-            GUILayout.EndScrollView();
-            GUILayout.EndArea();
+
+            _scroll = GUILayout.BeginScrollView(
+                _scroll,
+                false,
+                true,
+                GUILayout.ExpandWidth(true),
+                GUILayout.Height(scrollHeight));
+            try
+            {
+                DrawWorldCatalogSection(simulation);
+                DrawPrimaryNpcSelectors(simulation);
+                DrawAtomicActionControls(simulation);
+                DrawInteractionControls(simulation);
+                DrawProposedInteractionControls(simulation);
+                DrawPerNpcControls(simulation);
+                DrawInteractionOverview(simulation);
+                DrawRejectEventLog(simulation);
+            }
+            finally
+            {
+                GUILayout.EndScrollView();
+            }
+
+            GUI.DragWindow(new Rect(0f, 0f, _windowRect.width, 24f));
+        }
+
+        Rect BuildDefaultWindowRect()
+        {
+            var panelWidth = Mathf.Max(280f, width);
+            var panelHeight = Mathf.Clamp(maxHeight, 200f, Screen.height - (anchorOffset.y * 2f));
+            return new Rect(
+                Screen.width - panelWidth - anchorOffset.x,
+                anchorOffset.y,
+                panelWidth,
+                panelHeight);
+        }
+
+        Rect ClampWindowRect(Rect rect)
+        {
+            var panelWidth = Mathf.Max(280f, width);
+            var panelHeight = Mathf.Clamp(maxHeight, 200f, Screen.height - (anchorOffset.y * 2f));
+            rect.width = Mathf.Clamp(rect.width, 280f, Screen.width - 16f);
+            rect.height = Mathf.Clamp(rect.height, 200f, panelHeight);
+            rect.x = Mathf.Clamp(rect.x, 8f, Mathf.Max(8f, Screen.width - rect.width - 8f));
+            rect.y = Mathf.Clamp(rect.y, 8f, Mathf.Max(8f, Screen.height - rect.height - 8f));
+            if (rect.width < panelWidth * 0.5f)
+                rect.width = panelWidth;
+            return rect;
         }
 
         void DrawWorldCatalogSection(VillageAgentSimulation simulation)
