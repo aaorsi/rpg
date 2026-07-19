@@ -126,6 +126,7 @@ namespace Rpg.Npc
                 $"deliberations={telemetry.DeliberationCalls}, fallback={telemetry.FallbackCalls} ({telemetry.FallbackRate:P1}), plans ok={telemetry.PlanCompletionsSucceeded}, plans failed={telemetry.PlanCompletionsFailed}",
                 _lineStyle);
             GUILayout.Label($"npcs={_npcOptions.Count}  (toggle: {toggleKey})", _lineStyle);
+            DrawSystemicModeBanner(simulation);
 
             _scroll = GUILayout.BeginScrollView(
                 _scroll,
@@ -138,10 +139,13 @@ namespace Rpg.Npc
                 DrawWorldCatalogSection(simulation);
                 DrawPrimaryNpcSelectors(simulation);
                 DrawAtomicActionControls(simulation);
-                DrawInteractionControls(simulation);
-                DrawProposedInteractionControls(simulation);
+                if (!simulation.IsSystemicOnlyMode)
+                {
+                    DrawInteractionControls(simulation);
+                    DrawProposedInteractionControls(simulation);
+                    DrawInteractionOverview(simulation);
+                }
                 DrawPerNpcControls(simulation);
-                DrawInteractionOverview(simulation);
                 DrawRejectEventLog(simulation);
             }
             finally
@@ -174,6 +178,16 @@ namespace Rpg.Npc
             if (rect.width < panelWidth * 0.5f)
                 rect.width = panelWidth;
             return rect;
+        }
+
+        void DrawSystemicModeBanner(VillageAgentSimulation simulation)
+        {
+            if (simulation == null || !simulation.IsSystemicOnlyMode)
+                return;
+
+            GUILayout.Label(
+                "Option A: Interaction FSM disabled (SystemicOnly). Use 1:1 hero dialogue; systemic gossip/opinion debug below.",
+                _helpStyle);
         }
 
         void DrawWorldCatalogSection(VillageAgentSimulation simulation)

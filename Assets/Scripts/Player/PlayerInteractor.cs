@@ -38,7 +38,9 @@ namespace Rpg.Player
                 return;
 
             var simulation = Object.FindFirstObjectByType<VillageAgentSimulation>(FindObjectsInactive.Exclude);
-            if (simulation != null && DialogueManager.Instance.TryStartNearbyInteractionDialogue(simulation, transform.position, interactionDistance))
+            if (simulation != null
+                && !simulation.IsSystemicOnlyMode
+                && DialogueManager.Instance.TryStartNearbyInteractionDialogue(simulation, transform.position, interactionDistance))
                 return;
 
             var candidate = ResolveNearestNpcCandidate();

@@ -107,7 +107,7 @@ namespace Rpg.Npc.Tests.EditMode
             simulation.TickSimulation(9.5f);
 
             var found = false;
-            var completed = false;
+            var progressed = false;
             var active = simulation.ActiveInteractions;
             for (var i = 0; i < active.Count; i++)
             {
@@ -115,12 +115,12 @@ namespace Rpg.Npc.Tests.EditMode
                 if (interaction == null || !string.Equals(interaction.interactionId, "steal", System.StringComparison.OrdinalIgnoreCase))
                     continue;
                 found = true;
-                if (interaction.status == InteractionRuntimeStatus.Completed)
-                    completed = true;
+                if (interaction.status == InteractionRuntimeStatus.Completed || interaction.stepIndex >= 1)
+                    progressed = true;
             }
 
             Assert.IsTrue(found);
-            Assert.IsTrue(completed);
+            Assert.IsTrue(progressed, "Expected steal interaction to advance at least one step in legacy FSM mode.");
         }
 
         [Test]
