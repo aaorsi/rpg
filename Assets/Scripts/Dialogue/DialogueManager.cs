@@ -389,7 +389,7 @@ namespace Rpg.Dialogue
 
         public bool TryStartNearbyInteractionDialogue(VillageAgentSimulation simulation, Vector3 heroWorldPosition, float joinRadiusMeters)
         {
-            if (simulation == null || _dialogueOpen || ui == null)
+            if (simulation == null || simulation.IsSystemicOnlyMode || _dialogueOpen || ui == null)
                 return false;
             if (!simulation.TryAcquireHeroJoinContext(heroWorldPosition, joinRadiusMeters, out var joinContext) || joinContext == null)
                 return false;
@@ -441,6 +441,8 @@ namespace Rpg.Dialogue
 
         public bool TryStartDirectMultiPartyDialogue(IReadOnlyList<string> npcIds, string sessionLabel, string openingLine = null)
         {
+            if (IsSystemicOnlySimulationActive())
+                return false;
             if (_dialogueOpen || ui == null || npcIds == null || npcIds.Count < 2)
                 return false;
 
@@ -505,6 +507,12 @@ namespace Rpg.Dialogue
         {
             if (instance == null)
                 return;
+
+            if (simulation != null && simulation.IsSystemicOnlyMode)
+            {
+                simulation.NotifyInteractionDialogueStepCompleted(instance.instanceId, true);
+                return;
+            }
 
             var speakerId = IsHeroParticipant(actorNpcId) ? targetNpcId : actorNpcId;
             if (string.IsNullOrWhiteSpace(speakerId) || IsHeroParticipant(speakerId))
@@ -571,6 +579,12 @@ namespace Rpg.Dialogue
 
         static bool IsHeroParticipant(string npcId) =>
             string.Equals(npcId?.Trim(), InventoryService.HeroActorId, StringComparison.OrdinalIgnoreCase);
+
+        static bool IsSystemicOnlySimulationActive()
+        {
+            var simulation = UnityEngine.Object.FindFirstObjectByType<VillageAgentSimulation>(FindObjectsInactive.Exclude);
+            return simulation != null && simulation.IsSystemicOnlyMode;
+        }
 
         IEnumerator CoRunBackgroundInteractionDialogueBeat(
             VillageAgentSimulation simulation,

@@ -124,6 +124,12 @@ namespace Rpg.Npc.Tests.EditMode
                             {
                                 new InteractionActionStep
                                 {
+                                    actionType = InteractionActionTypes.MoveToNpc,
+                                    actorRole = "initiator",
+                                    targetRole = "target"
+                                },
+                                new InteractionActionStep
+                                {
                                     actionType = InteractionActionTypes.EngageDialogue,
                                     actorRole = "initiator",
                                     targetRole = "target"

@@ -14,6 +14,7 @@ namespace Rpg.Npc
     public sealed class VillageAgentSimulation : MonoBehaviour
     {
         [SerializeField] bool simulationEnabled = true;
+        [SerializeField] VillageSimulationMode simulationMode = VillageSimulationMode.SystemicOnly;
         [SerializeField] bool enableSidecarDeliberation = true;
         [SerializeField] float deliberationCadenceSeconds = 2f;
         [SerializeField] float villagerRefreshSeconds = 4f;
@@ -84,6 +85,9 @@ namespace Rpg.Npc
             set => autoPromoteProposedInteractionsInDevelopment = value;
         }
         public IReadOnlyList<InteractionRuntimeInstance> ActiveInteractions => _activeInteractions;
+        public VillageSimulationMode SimulationMode => simulationMode;
+        public bool IsSystemicOnlyMode => simulationMode == VillageSimulationMode.SystemicOnly;
+        public bool IsInteractionRunnerActive => enableInteractionRunner && !IsSystemicOnlyMode;
         public bool HasRunningInteractions
         {
             get
@@ -822,9 +826,9 @@ namespace Rpg.Npc
         {
             EnsureInitialized();
             error = string.Empty;
-            if (!enableInteractionRunner)
+            if (!IsInteractionRunnerActive)
             {
-                error = "interaction_runner_disabled";
+                error = IsSystemicOnlyMode ? "systemic_only_mode" : "interaction_runner_disabled";
                 return false;
             }
 
@@ -883,9 +887,9 @@ namespace Rpg.Npc
         {
             EnsureInitialized();
             error = string.Empty;
-            if (!enableInteractionRunner)
+            if (!IsInteractionRunnerActive)
             {
-                error = "interaction_runner_disabled";
+                error = IsSystemicOnlyMode ? "systemic_only_mode" : "interaction_runner_disabled";
                 return false;
             }
 
@@ -1356,6 +1360,8 @@ namespace Rpg.Npc
         {
             EnsureInitialized();
             context = null;
+            if (IsSystemicOnlyMode)
+                return false;
             var best = default(InteractionRuntimeInstance);
             var bestDistanceSq = Mathf.Max(0.1f, joinRadiusMeters) * Mathf.Max(0.1f, joinRadiusMeters);
             for (var i = 0; i < _activeInteractions.Count; i++)
@@ -1470,10 +1476,12 @@ namespace Rpg.Npc
         public void ConfigureForTests(
             IVillageDeliberationTransport transport,
             WorldStateService worldState = null,
-            string askStatePath = null)
+            string askStatePath = null,
+            VillageSimulationMode testSimulationMode = VillageSimulationMode.LegacyInteractionFsm)
         {
             _transport = transport;
             _worldState = worldState;
+            simulationMode = testSimulationMode;
             var testAskPath = string.IsNullOrWhiteSpace(askStatePath)
                 ? Path.Combine(Path.GetTempPath(), $"rpg_village_asks_test_{Guid.NewGuid():N}.json")
                 : askStatePath;
@@ -1505,6 +1513,11 @@ namespace Rpg.Npc
 
             error = string.Empty;
             return true;
+        }
+
+        public void SetSimulationModeForTests(VillageSimulationMode mode)
+        {
+            simulationMode = mode;
         }
 
         public void TickSimulation(float nowTime)
@@ -1741,7 +1754,7 @@ namespace Rpg.Npc
 
         void TickInteractions(float nowTime)
         {
-            if (!enableInteractionRunner)
+            if (!IsInteractionRunnerActive)
                 return;
 
             RefreshInteractionApproachPositions(nowTime);
