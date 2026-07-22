@@ -40,6 +40,7 @@ namespace Rpg.Dialogue
             string multiPartyContextBlock = null,
             string narrativeSectionBlock = null,
             string villageRumorFactsBlock = null,
+            string villageStandingFactsBlock = null,
             string dialogueRoleRulesBlock = null)
         {
             var system = BuildSystemPrompt(
@@ -58,6 +59,7 @@ namespace Rpg.Dialogue
                 multiPartyContextBlock,
                 narrativeSectionBlock,
                 villageRumorFactsBlock,
+                villageStandingFactsBlock,
                 dialogueRoleRulesBlock);
             var messages = new List<OllamaMessageDto>
             {
@@ -87,6 +89,7 @@ namespace Rpg.Dialogue
             string multiPartyContextBlock = null,
             string narrativeSectionBlock = null,
             string villageRumorFactsBlock = null,
+            string villageStandingFactsBlock = null,
             string dialogueRoleRulesBlock = null)
         {
             var template = LoadTemplate("npc_system_template.txt");
@@ -94,6 +97,10 @@ namespace Rpg.Dialogue
             if (!string.IsNullOrWhiteSpace(villageRumorFactsBlock))
             {
                 facts = facts + "\n\nRECENT_VILLAGE_RUMORS:\n" + villageRumorFactsBlock.Trim();
+            }
+            if (!string.IsNullOrWhiteSpace(villageStandingFactsBlock))
+            {
+                facts = facts + "\n\nVILLAGE_STANDING:\n" + villageStandingFactsBlock.Trim();
             }
             var memoryBlock = _memory != null
                 ? _memory.BuildPromptBlock(npc.npcId)

@@ -21,14 +21,8 @@ namespace Rpg.Npc
         [SerializeField] int maxGossipInteractionsPerTick = 2;
         [SerializeField] int maxPlanStepsPerDeliberation = 5;
         [SerializeField, Range(10f, 30f)] float npcReferenceRefreshSeconds = 10f;
-        [SerializeField] bool enableInteractionRunner = true;
-        [SerializeField] float interactionStepDurationSeconds = 3f;
         [SerializeField] float interactionApproachMaxSeconds = 45f;
         [SerializeField] float interactionEngageRangeMeters = 2.5f;
-        [SerializeField] float interactionDialogueTimeoutSeconds = 25f;
-        [SerializeField] float interactionPairCooldownSeconds = 12f;
-        [SerializeField] int maxActiveInteractions = 16;
-        [SerializeField] int maxLoopIterationsPerInteraction = 3;
         [SerializeField] bool logDeliberationTelemetry = true;
         [SerializeField] bool enableAmbientNpcChatter = true;
         [SerializeField] float ambientChatterCooldownSeconds = 5f;
@@ -47,7 +41,6 @@ namespace Rpg.Npc
         VillageRumorFeed _rumorFeed;
         InteractionDefinitionRegistry _interactionRegistry;
         InteractionDefinitionsDoc _interactionDefinitions;
-        NpcInteractionMemoryService _interactionMemory;
         LocationBindingRegistry _locationRegistry;
         readonly Dictionary<string, VillagerRuntimeState> _stateByNpcId =
             new Dictionary<string, VillagerRuntimeState>(StringComparer.OrdinalIgnoreCase);
@@ -56,23 +49,16 @@ namespace Rpg.Npc
         readonly Dictionary<string, Vector3> _npcPositionById = new Dictionary<string, Vector3>(StringComparer.OrdinalIgnoreCase);
         readonly List<string> _staticLocationIds = new List<string>();
         readonly List<string> _knownWorkIds = new List<string>();
-        readonly List<InteractionRuntimeInstance> _activeInteractions = new List<InteractionRuntimeInstance>();
-        readonly Dictionary<string, float> _interactionPairCooldownByKey =
-            new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase);
-        readonly Dictionary<string, string> _interactionLockByNpcId =
-            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        static readonly IReadOnlyList<InteractionRuntimeInstance> EmptyActiveInteractions = Array.Empty<InteractionRuntimeInstance>();
 
         Task<VillagerDeliberationEnvelope> _inFlight;
         string _inFlightNpcId;
         string _inFlightReason;
         float _nextVillagerRefreshAt;
         float _nextNpcReferenceRefreshAt;
-        float _nextInteractionPositionRefreshAt;
         bool _initialized;
         bool _walletsSeeded;
-        bool _autoCompleteInteractionDialogue;
         VillageWorldReferenceSnapshot _worldReferenceSnapshot;
-        string _lastDialoguePhase = string.Empty;
         readonly VillageInteractionDebugEventLog _interactionDebugEvents = new VillageInteractionDebugEventLog();
         bool _allowDebugInteractionInjection;
 
@@ -87,24 +73,11 @@ namespace Rpg.Npc
             get => autoPromoteProposedInteractionsInDevelopment;
             set => autoPromoteProposedInteractionsInDevelopment = value;
         }
-        public IReadOnlyList<InteractionRuntimeInstance> ActiveInteractions => _activeInteractions;
+        public IReadOnlyList<InteractionRuntimeInstance> ActiveInteractions => EmptyActiveInteractions;
         public VillageSimulationMode SimulationMode => simulationMode;
         public bool IsSystemicOnlyMode => simulationMode == VillageSimulationMode.SystemicOnly;
         public bool IsInteractionRunnerActive => false;
-        public bool HasRunningInteractions
-        {
-            get
-            {
-                for (var i = 0; i < _activeInteractions.Count; i++)
-                {
-                    var item = _activeInteractions[i];
-                    if (item != null && item.status == InteractionRuntimeStatus.Running)
-                        return true;
-                }
-
-                return false;
-            }
-        }
+        public bool HasRunningInteractions => false;
         public int GetActorCoinBalance(string actorId)
         {
             var inventory = ResolveInventory();
@@ -218,6 +191,24 @@ namespace Rpg.Npc
                     ids.Add(ask.askId.Trim());
             }
             return ids;
+        }
+
+        public IReadOnlyList<VillageGroupAskRecord> SnapshotOfferedGroupAsksForPlayer()
+        {
+            var offered = new List<VillageGroupAskRecord>();
+            if (_opinionService == null)
+                return offered;
+            var asks = _opinionService.SnapshotGroupAsks();
+            for (var i = 0; i < asks.Count; i++)
+            {
+                var ask = asks[i];
+                if (ask == null || string.IsNullOrWhiteSpace(ask.askId))
+                    continue;
+                if (string.Equals(ask.state, "offered", StringComparison.OrdinalIgnoreCase))
+                    offered.Add(ask);
+            }
+
+            return offered;
         }
 
         public IReadOnlyList<string> BuildInteractionDebugLines(InteractionRuntimeInstance instance)
@@ -639,16 +630,6 @@ namespace Rpg.Npc
                 targetNpcId = targetNpcId ?? string.Empty
             };
 
-        public sealed class HeroInteractionJoinContext
-        {
-            public string InteractionInstanceId;
-            public string InteractionId;
-            public string InteractionDisplayName;
-            public string PrimaryNpcId;
-            public string SecondaryNpcId;
-            public List<string> ParticipantNpcIds = new List<string>();
-        }
-
         void Awake()
         {
             EnsureInitialized();
@@ -841,32 +822,7 @@ namespace Rpg.Npc
             return false;
         }
 
-        public IReadOnlyList<string> GetInteractionParticipantNpcIds(string interactionInstanceId)
-        {
-            var interaction = FindRuntimeInteraction(interactionInstanceId);
-            if (interaction == null)
-                return Array.Empty<string>();
-            var ids = new List<string>();
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            if (!string.IsNullOrWhiteSpace(interaction.actorNpcId) && seen.Add(interaction.actorNpcId.Trim()))
-                ids.Add(interaction.actorNpcId.Trim());
-            if (!string.IsNullOrWhiteSpace(interaction.targetNpcId) && seen.Add(interaction.targetNpcId.Trim()))
-                ids.Add(interaction.targetNpcId.Trim());
-            if (interaction.extraParticipantNpcIds != null)
-            {
-                for (var i = 0; i < interaction.extraParticipantNpcIds.Count; i++)
-                {
-                    var id = interaction.extraParticipantNpcIds[i];
-                    if (string.IsNullOrWhiteSpace(id))
-                        continue;
-                    var trimmed = id.Trim();
-                    if (seen.Add(trimmed))
-                        ids.Add(trimmed);
-                }
-            }
-
-            return ids;
-        }
+        public IReadOnlyList<string> GetInteractionParticipantNpcIds(string interactionInstanceId) => Array.Empty<string>();
 
         public string FormatInteractionParticipantsForDebug(InteractionRuntimeInstance instance)
         {
@@ -978,15 +934,6 @@ namespace Rpg.Npc
             return step != null;
         }
 
-        static string ResolveInteractionStepTopic(InteractionActionStep step, InteractionRuntimeInstance instance)
-        {
-            if (step?.parameters != null && step.parameters.TryGetValue("topic", out var topic) && !string.IsNullOrWhiteSpace(topic))
-                return topic.Trim();
-            if (!string.IsNullOrWhiteSpace(instance?.interactionDisplayName))
-                return instance.interactionDisplayName.Trim();
-            return instance?.interactionId ?? "village interaction";
-        }
-
         void AppendParticipantLabel(List<string> parts, string npcId, string role)
         {
             if (parts == null || string.IsNullOrWhiteSpace(npcId))
@@ -1002,51 +949,6 @@ namespace Rpg.Npc
                 ? $"{trimmed} (hero)"
                 : $"{trimmed} ({ResolveDisplayNameFromState(trimmed)})";
             parts.Add($"{label} [{role}]");
-        }
-
-        void BeginInteraction(InteractionRuntimeInstance instance)
-        {
-            if (instance == null)
-                return;
-            LockNpcsForInteraction(instance);
-            KickoffInitiatorApproach(instance);
-        }
-
-        static bool InstanceInvolvesHero(InteractionRuntimeInstance instance) =>
-            IsHeroParticipant(instance?.actorNpcId) || IsHeroParticipant(instance?.targetNpcId);
-
-        void KickoffInitiatorApproach(InteractionRuntimeInstance instance)
-        {
-            if (instance == null)
-                return;
-            _nextNpcReferenceRefreshAt = -1f;
-            RefreshNpcReferenceSnapshot(Time.time);
-            DispatchInitiatorApproach(instance);
-        }
-
-        void DispatchInitiatorApproach(InteractionRuntimeInstance instance)
-        {
-            if (instance == null)
-                return;
-            var initiator = instance.actorNpcId;
-            var target = instance.targetNpcId;
-            if (string.IsNullOrWhiteSpace(initiator) || string.IsNullOrWhiteSpace(target))
-                return;
-
-            if (IsHeroParticipant(initiator))
-            {
-                if (TryResolveHeroTransform(out var hero))
-                    TryDispatchMoveToHero(target, hero.position);
-                return;
-            }
-
-            if (IsHeroParticipant(target) && TryResolveHeroTransform(out var heroTarget))
-            {
-                TryDispatchMoveToHero(initiator, heroTarget.position);
-                return;
-            }
-
-            TryDispatchMoveToNpc(initiator, target);
         }
 
         void TryDispatchMoveToHero(string npcId, Vector3 heroPosition)
@@ -1084,48 +986,6 @@ namespace Rpg.Npc
             moverState.Controller.SetPlan(plan);
         }
 
-        void LockNpcsForInteraction(InteractionRuntimeInstance instance)
-        {
-            if (instance == null)
-                return;
-            LockNpcForInteraction(instance.actorNpcId, instance.instanceId);
-            LockNpcForInteraction(instance.targetNpcId, instance.instanceId);
-        }
-
-        void LockNpcForInteraction(string npcId, string instanceId)
-        {
-            if (string.IsNullOrWhiteSpace(npcId) || string.IsNullOrWhiteSpace(instanceId) || IsHeroParticipant(npcId))
-                return;
-            _interactionLockByNpcId[npcId.Trim()] = instanceId.Trim();
-        }
-
-        void UnlockNpcsForInteraction(InteractionRuntimeInstance instance)
-        {
-            if (instance == null)
-                return;
-            UnlockNpcForInteraction(instance.actorNpcId, instance.instanceId);
-            UnlockNpcForInteraction(instance.targetNpcId, instance.instanceId);
-        }
-
-        void UnlockNpcForInteraction(string npcId, string instanceId)
-        {
-            if (string.IsNullOrWhiteSpace(npcId) || string.IsNullOrWhiteSpace(instanceId))
-                return;
-            var trimmed = npcId.Trim();
-            if (_interactionLockByNpcId.TryGetValue(trimmed, out var lockedInstanceId)
-                && string.Equals(lockedInstanceId, instanceId.Trim(), StringComparison.OrdinalIgnoreCase))
-            {
-                _interactionLockByNpcId.Remove(trimmed);
-            }
-        }
-
-        bool IsNpcLockedByActiveInteraction(string npcId)
-        {
-            if (string.IsNullOrWhiteSpace(npcId))
-                return false;
-            return _interactionLockByNpcId.ContainsKey(npcId.Trim());
-        }
-
         bool AreInteractionActorsInRange(string actorNpcId, string targetNpcId)
         {
             if (!TryGetNpcPosition(actorNpcId, out var actorPos) || !TryGetNpcPosition(targetNpcId, out var targetPos))
@@ -1134,229 +994,26 @@ namespace Rpg.Npc
             return delta.magnitude <= Mathf.Max(0.5f, interactionEngageRangeMeters);
         }
 
-        void MaintainInteractionApproaches(float nowTime)
+        public bool TryAcquireHeroJoinContext(Vector3 heroWorldPosition, float joinRadiusMeters, out object context)
         {
-            for (var i = 0; i < _activeInteractions.Count; i++)
-            {
-                var instance = _activeInteractions[i];
-                if (instance == null || instance.status != InteractionRuntimeStatus.Running || instance.pausedByHero)
-                    continue;
-                if (AreInteractionActorsInRange(instance.actorNpcId, instance.targetNpcId))
-                    continue;
-                if (!InteractionNeedsActorProximity(instance))
-                    continue;
-                DispatchInitiatorApproach(instance);
-            }
-        }
-
-        bool InteractionNeedsActorProximity(InteractionRuntimeInstance instance)
-        {
-            if (instance == null)
-                return false;
-            var definition = FindInteractionDefinition(instance.interactionId);
-            if (definition == null || definition.phases == null)
-                return true;
-            if (!TryGetPhaseSteps(definition, instance.phase, out var phaseSteps)
-                || phaseSteps == null
-                || instance.stepIndex < 0
-                || instance.stepIndex >= phaseSteps.Count)
-            {
-                return true;
-            }
-
-            var step = phaseSteps[instance.stepIndex];
-            if (step == null || string.IsNullOrWhiteSpace(step.actionType))
-                return true;
-            var actionType = step.actionType.Trim().ToLowerInvariant();
-            return actionType == InteractionActionTypes.MoveToNpc
-                || actionType == InteractionActionTypes.MoveToHero
-                || actionType == InteractionActionTypes.MoveToLocation
-                || actionType == InteractionActionTypes.EngageDialogue;
-        }
-
-        void RefreshInteractionApproachPositions(float nowTime)
-        {
-            if (nowTime < _nextInteractionPositionRefreshAt)
-                return;
-            _nextInteractionPositionRefreshAt = nowTime + Mathf.Clamp(npcReferenceRefreshSeconds, 10f, 30f);
-            RefreshNpcReferenceSnapshot(nowTime);
-            if (!TryResolveHeroTransform(out var hero))
-                return;
-
-            var heroPos = hero.position;
-            for (var i = 0; i < _activeInteractions.Count; i++)
-            {
-                var instance = _activeInteractions[i];
-                if (instance == null || instance.status != InteractionRuntimeStatus.Running || !InstanceInvolvesHero(instance))
-                    continue;
-                DispatchInitiatorApproach(instance);
-                RefreshActiveHeroMoveTargets(instance, heroPos);
-            }
-        }
-
-        void RefreshActiveHeroMoveTargets(InteractionRuntimeInstance instance, Vector3 heroPosition)
-        {
-            if (instance == null)
-                return;
-            void refresh(string npcId)
-            {
-                if (IsHeroParticipant(npcId) || string.IsNullOrWhiteSpace(npcId))
-                    return;
-                if (!TryGetRuntimeState(npcId, out var state) || state?.Controller == null)
-                    return;
-                state.Controller.RefreshActiveMoveTarget(heroPosition);
-            }
-
-            refresh(instance.actorNpcId);
-            refresh(instance.targetNpcId);
-            if (instance.extraParticipantNpcIds == null)
-                return;
-            for (var i = 0; i < instance.extraParticipantNpcIds.Count; i++)
-                refresh(instance.extraParticipantNpcIds[i]);
-        }
-
-        List<string> BuildJoinParticipantList(InteractionRuntimeInstance interaction)
-        {
-            var ids = new List<string>();
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            if (interaction == null)
-                return ids;
-            if (!string.IsNullOrWhiteSpace(interaction.actorNpcId) && seen.Add(interaction.actorNpcId.Trim()))
-                ids.Add(interaction.actorNpcId.Trim());
-            if (!string.IsNullOrWhiteSpace(interaction.targetNpcId) && seen.Add(interaction.targetNpcId.Trim()))
-                ids.Add(interaction.targetNpcId.Trim());
-            if (interaction.extraParticipantNpcIds != null)
-            {
-                for (var i = 0; i < interaction.extraParticipantNpcIds.Count; i++)
-                {
-                    var id = interaction.extraParticipantNpcIds[i];
-                    if (string.IsNullOrWhiteSpace(id))
-                        continue;
-                    var trimmed = id.Trim();
-                    if (seen.Add(trimmed))
-                        ids.Add(trimmed);
-                }
-            }
-
-            return ids;
-        }
-
-        public bool TryAcquireHeroJoinContext(Vector3 heroWorldPosition, float joinRadiusMeters, out HeroInteractionJoinContext context)
-        {
-            EnsureInitialized();
             context = null;
-            if (IsSystemicOnlyMode)
-                return false;
-            var best = default(InteractionRuntimeInstance);
-            var bestDistanceSq = Mathf.Max(0.1f, joinRadiusMeters) * Mathf.Max(0.1f, joinRadiusMeters);
-            for (var i = 0; i < _activeInteractions.Count; i++)
-            {
-                var interaction = _activeInteractions[i];
-                if (interaction == null || interaction.status != InteractionRuntimeStatus.Running || interaction.pausedByHero)
-                    continue;
-                if (!interaction.heroJoinEnabled
-                    && !IsHeroParticipant(interaction.actorNpcId)
-                    && !IsHeroParticipant(interaction.targetNpcId))
-                    continue;
-                if (!TryGetNpcPosition(interaction.actorNpcId, out var actorPos))
-                    continue;
-                if (!TryGetNpcPosition(interaction.targetNpcId, out var targetPos))
-                    continue;
-                var actorSq = (actorPos - heroWorldPosition).sqrMagnitude;
-                var targetSq = (targetPos - heroWorldPosition).sqrMagnitude;
-                var closestSq = Mathf.Min(actorSq, targetSq);
-                if (closestSq > bestDistanceSq)
-                    continue;
-                best = interaction;
-                bestDistanceSq = closestSq;
-            }
-
-            if (best == null)
-                return false;
-
-            context = new HeroInteractionJoinContext
-            {
-                InteractionInstanceId = best.instanceId,
-                InteractionId = best.interactionId,
-                InteractionDisplayName = best.interactionDisplayName,
-                PrimaryNpcId = best.actorNpcId,
-                SecondaryNpcId = best.targetNpcId,
-                ParticipantNpcIds = BuildJoinParticipantList(best)
-            };
-            var midpoint = Vector3.zero;
-            if (TryGetNpcPosition(best.actorNpcId, out var joinActorPos) && TryGetNpcPosition(best.targetNpcId, out var joinTargetPos))
-                midpoint = (joinActorPos + joinTargetPos) * 0.5f;
-            var maxBystanderSq = Mathf.Max(0.5f, joinRadiusMeters) * Mathf.Max(0.5f, joinRadiusMeters);
-            var participantCap = best.extraParticipantNpcIds != null && best.extraParticipantNpcIds.Count > 0 ? 6 : 4;
-            for (var i = 0; i < _participantCache.Count && context.ParticipantNpcIds.Count < participantCap; i++)
-            {
-                var npcId = _participantCache[i];
-                if (string.IsNullOrWhiteSpace(npcId)
-                    || context.ParticipantNpcIds.Contains(npcId)
-                    || !TryGetNpcPosition(npcId, out var pos))
-                {
-                    continue;
-                }
-
-                if ((pos - midpoint).sqrMagnitude > maxBystanderSq)
-                    continue;
-                context.ParticipantNpcIds.Add(npcId);
-            }
-            return true;
+            return false;
         }
 
         public bool TryMarkInteractionJoinedByHero(string interactionInstanceId, out string error)
         {
-            EnsureInitialized();
             error = string.Empty;
-            var interaction = FindRuntimeInteraction(interactionInstanceId);
-            if (interaction == null)
-            {
-                error = "interaction_not_found";
-                return false;
-            }
-
-            if (interaction.status != InteractionRuntimeStatus.Running)
-            {
-                error = "interaction_not_running";
-                return false;
-            }
-
-            interaction.pausedByHero = true;
-            interaction.statusReason = "paused_for_hero_dialogue";
-            interaction.updatedAtTime = Time.time;
-            return true;
+            return false;
         }
 
         public void NotifyHeroInteractionDialogueClosed(string interactionInstanceId)
         {
-            EnsureInitialized();
-            var interaction = FindRuntimeInteraction(interactionInstanceId);
-            if (interaction == null)
-                return;
-            if (interaction.status != InteractionRuntimeStatus.Running)
-                return;
-
-            interaction.pausedByHero = false;
-            interaction.statusReason = "resumed_after_hero_dialogue";
-            interaction.nextStepAtTime = Time.time + Mathf.Max(0.2f, interactionStepDurationSeconds);
-            interaction.updatedAtTime = Time.time;
         }
 
         public void NotifyInteractionDialogueStepCompleted(string interactionInstanceId, bool succeeded)
         {
-            EnsureInitialized();
-            var interaction = FindRuntimeInteraction(interactionInstanceId);
-            if (interaction == null || !interaction.awaitingDialogueStep)
-                return;
-
-            interaction.awaitingDialogueStep = false;
-            if (!succeeded)
-                RecordInteractionStepResult(interaction, new InteractionEffectResolver.StepResult(false, "dialogue line failed"));
-            interaction.stepIndex++;
-            interaction.nextStepAtTime = Time.time + Mathf.Max(0.2f, interactionStepDurationSeconds);
-            interaction.updatedAtTime = Time.time;
         }
+
 
         public void ConfigureForTests(
             IVillageDeliberationTransport transport,
@@ -1371,7 +1028,6 @@ namespace Rpg.Npc
                 ? Path.Combine(Path.GetTempPath(), $"rpg_village_asks_test_{Guid.NewGuid():N}.json")
                 : askStatePath;
             _opinionService = new VillageOpinionService(testAskPath);
-            _autoCompleteInteractionDialogue = true;
             _allowDebugInteractionInjection = true;
             _initialized = false;
             EnsureInitialized();
@@ -1415,14 +1071,11 @@ namespace Rpg.Npc
             QueueInteractionGossip(nowTime);
             _opinionService.ProcessGossip(maxGossipInteractionsPerTick);
             ApplyPendingGroupAskMilestoneSignals();
-            TickInteractions(nowTime);
             TryFinalizeInFlightResult();
             if (_inFlight != null)
                 return;
 
             if (_scheduler == null || !_scheduler.TryAcquire(nowTime, out var npcId, out var reason))
-                return;
-            if (IsNpcLockedByActiveInteraction(npcId))
                 return;
             if (!_stateByNpcId.TryGetValue(npcId, out var state) || state == null)
                 return;
@@ -1453,8 +1106,6 @@ namespace Rpg.Npc
                 _transport = new SidecarVillageDeliberationTransport(_settings);
             if (_interactionRegistry == null)
                 _interactionRegistry = new InteractionDefinitionRegistry();
-            if (_interactionMemory == null)
-                _interactionMemory = new NpcInteractionMemoryService(new NpcMemoryRepository());
             if (_locationRegistry == null)
             {
                 var library = new NarrativeContentLibrary();
@@ -1692,96 +1343,6 @@ namespace Rpg.Npc
             }
         }
 
-        void TickInteractions(float nowTime)
-        {
-            if (!IsInteractionRunnerActive)
-                return;
-
-            RefreshInteractionApproachPositions(nowTime);
-            MaintainInteractionApproaches(nowTime);
-            TrySpawnInteractionsFromCurrentChats(nowTime);
-            for (var i = _activeInteractions.Count - 1; i >= 0; i--)
-            {
-                var instance = _activeInteractions[i];
-                if (instance == null)
-                {
-                    _activeInteractions.RemoveAt(i);
-                    continue;
-                }
-
-                if (instance.status != InteractionRuntimeStatus.Running)
-                {
-                    if (nowTime - instance.updatedAtTime > 4f)
-                        _activeInteractions.RemoveAt(i);
-                    continue;
-                }
-                if (instance.pausedByHero)
-                    continue;
-
-                if (instance.expiresAtTime > 0f && nowTime >= instance.expiresAtTime)
-                {
-                    CompleteInteraction(instance, InteractionRuntimeStatus.Expired, "expired", nowTime);
-                    continue;
-                }
-
-                if (nowTime < instance.nextStepAtTime)
-                    continue;
-
-                AdvanceInteractionStep(instance, nowTime);
-            }
-        }
-
-        void TrySpawnInteractionsFromCurrentChats(float nowTime)
-        {
-            if (_activeInteractions.Count >= Mathf.Max(1, maxActiveInteractions))
-                return;
-            if (_interactionDefinitions == null || _interactionDefinitions.interactions == null || _interactionDefinitions.interactions.Count == 0)
-                return;
-
-            foreach (var kvp in _stateByNpcId)
-            {
-                if (_activeInteractions.Count >= Mathf.Max(1, maxActiveInteractions))
-                    break;
-
-                var state = kvp.Value;
-                if (state == null || state.Controller == null)
-                    continue;
-                if (!string.Equals(state.Controller.CurrentPrimitiveType, NpcPrimitiveTypes.ChatWithNpc, StringComparison.Ordinal))
-                    continue;
-                var actorNpcId = state.NpcId;
-                var targetNpcId = state.Controller.CurrentTargetNpcId;
-                if (string.IsNullOrWhiteSpace(targetNpcId) || string.Equals(actorNpcId, targetNpcId, StringComparison.OrdinalIgnoreCase))
-                    continue;
-                if (!_stateByNpcId.ContainsKey(targetNpcId))
-                    continue;
-
-                var pairKey = BuildInteractionPairKey(actorNpcId, targetNpcId);
-                if (HasActiveInteractionForPair(pairKey))
-                    continue;
-                if (_interactionPairCooldownByKey.TryGetValue(pairKey, out var cooldownUntil) && nowTime < cooldownUntil)
-                    continue;
-
-                var definition = PickSpawnableInteractionDefinition();
-                if (definition == null)
-                    continue;
-
-                var instance = CreateInteractionInstance(definition, actorNpcId, targetNpcId, nowTime);
-                _activeInteractions.Add(instance);
-                _interactionPairCooldownByKey[pairKey] = nowTime + Mathf.Max(0f, interactionPairCooldownSeconds);
-                BeginInteraction(instance);
-                DialogueTelemetry.Log(
-                    "VillageInteractionStarted",
-                    $"instance={instance.instanceId}, interaction={instance.interactionId}, actor={actorNpcId}, target={targetNpcId}");
-            }
-        }
-
-        static string BuildInteractionPairKey(string npcA, string npcB)
-        {
-            var left = string.IsNullOrWhiteSpace(npcA) ? string.Empty : npcA.Trim().ToLowerInvariant();
-            var right = string.IsNullOrWhiteSpace(npcB) ? string.Empty : npcB.Trim().ToLowerInvariant();
-            return string.CompareOrdinal(left, right) <= 0 ? left + "|" + right : right + "|" + left;
-        }
-
         bool TryGetNpcPosition(string npcId, out Vector3 position)
         {
             position = Vector3.zero;
@@ -1835,102 +1396,6 @@ namespace Rpg.Npc
             state.Controller.SetPlan(plan);
         }
 
-        static void AssignNpcChatPlan(
-            VillagerRuntimeState state,
-            string targetNpcId,
-            Vector3 worldLocation,
-            float durationSeconds,
-            float stopDistanceMeters)
-        {
-            if (state == null || state.Controller == null)
-                return;
-            var plan = new List<NpcPrimitiveStep>
-            {
-                new NpcPrimitiveStep
-                {
-                    PrimitiveType = NpcPrimitiveTypes.ChatWithNpc,
-                    TargetNpcId = targetNpcId ?? string.Empty,
-                    WorldLocation = worldLocation,
-                    DurationSeconds = Mathf.Max(0.2f, durationSeconds),
-                    StopDistanceMeters = stopDistanceMeters
-                }
-            };
-            state.ActivePlan = plan;
-            state.Controller.SetPlan(plan);
-        }
-
-        InteractionRuntimeInstance FindRuntimeInteraction(string interactionInstanceId)
-        {
-            if (string.IsNullOrWhiteSpace(interactionInstanceId))
-                return null;
-            for (var i = 0; i < _activeInteractions.Count; i++)
-            {
-                var interaction = _activeInteractions[i];
-                if (interaction == null || string.IsNullOrWhiteSpace(interaction.instanceId))
-                    continue;
-                if (string.Equals(interaction.instanceId, interactionInstanceId, StringComparison.OrdinalIgnoreCase))
-                    return interaction;
-            }
-            return null;
-        }
-
-        bool HasActiveInteractionForPair(string pairKey)
-        {
-            if (string.IsNullOrWhiteSpace(pairKey))
-                return false;
-            for (var i = 0; i < _activeInteractions.Count; i++)
-            {
-                var item = _activeInteractions[i];
-                if (item == null || item.status != InteractionRuntimeStatus.Running)
-                    continue;
-                if (string.Equals(BuildInteractionPairKey(item.actorNpcId, item.targetNpcId), pairKey, StringComparison.OrdinalIgnoreCase))
-                    return true;
-            }
-            return false;
-        }
-
-        InteractionDefinition PickSpawnableInteractionDefinition()
-        {
-            if (_interactionDefinitions == null || _interactionDefinitions.interactions == null)
-                return null;
-
-            var candidates = new List<InteractionDefinition>();
-            var totalWeight = 0f;
-            for (var i = 0; i < _interactionDefinitions.interactions.Count; i++)
-            {
-                var definition = _interactionDefinitions.interactions[i];
-                if (definition == null)
-                    continue;
-                if (!string.Equals(definition.status, "active", StringComparison.OrdinalIgnoreCase))
-                    continue;
-                if (!definition.spawnFromChat)
-                    continue;
-                if (definition.phases == null)
-                    continue;
-                var hasAnySteps = (definition.phases.start != null && definition.phases.start.Count > 0)
-                    || (definition.phases.loop != null && definition.phases.loop.Count > 0)
-                    || (definition.phases.end != null && definition.phases.end.Count > 0);
-                if (!hasAnySteps)
-                    continue;
-
-                candidates.Add(definition);
-                totalWeight += Mathf.Max(0.01f, definition.selectionWeight <= 0f ? 1f : definition.selectionWeight);
-            }
-
-            if (candidates.Count == 0)
-                return null;
-
-            var random = UnityEngine.Random.value * totalWeight;
-            for (var i = 0; i < candidates.Count; i++)
-            {
-                var definition = candidates[i];
-                random -= Mathf.Max(0.01f, definition.selectionWeight <= 0f ? 1f : definition.selectionWeight);
-                if (random <= 0f)
-                    return definition;
-            }
-            return candidates[candidates.Count - 1];
-        }
-
         InteractionRuntimeInstance CreateInteractionInstance(
             InteractionDefinition definition,
             string actorNpcId,
@@ -1959,7 +1424,6 @@ namespace Rpg.Npc
                     instance.expiresAtTime = nowTime + (definition.expiry.ttlHours * 3600f);
             }
 
-            instance.heroJoinEnabled = IsHeroJoinInteraction(definition);
             PopulateRoleAssignments(instance, definition);
             return instance;
         }
@@ -2002,188 +1466,6 @@ namespace Rpg.Npc
                     instance.roleToNpcId[$"extra_{i + 1}"] = extraId.Trim();
                 }
             }
-        }
-
-        static bool IsHeroJoinInteraction(InteractionDefinition definition)
-        {
-            if (definition == null || string.IsNullOrWhiteSpace(definition.id))
-                return false;
-            switch (definition.id.Trim().ToLowerInvariant())
-            {
-                case "romantic_relationship":
-                case "start_cult":
-                case "cult_conversion":
-                case "elect_mayor":
-                case "group_persuasion":
-                    return true;
-                default:
-                    return false;
-            }
-        }
-
-        void AdvanceInteractionStep(InteractionRuntimeInstance instance, float nowTime)
-        {
-            var definition = FindInteractionDefinition(instance.interactionId);
-            if (definition == null || definition.phases == null)
-            {
-                CompleteInteraction(instance, InteractionRuntimeStatus.Failed, "missing_definition", nowTime);
-                return;
-            }
-
-            if (instance.awaitingDialogueStep)
-            {
-                if (nowTime < instance.dialogueStepDeadline)
-                    return;
-                instance.awaitingDialogueStep = false;
-                RecordInteractionStepResult(instance, new InteractionEffectResolver.StepResult(false, "dialogue timed out"));
-                instance.stepIndex++;
-                instance.nextStepAtTime = nowTime + Mathf.Max(0.2f, interactionStepDurationSeconds);
-                instance.updatedAtTime = nowTime;
-                return;
-            }
-
-            if (!TryGetPhaseSteps(definition, instance.phase, out var phaseSteps))
-            {
-                CompleteInteraction(instance, InteractionRuntimeStatus.Failed, "invalid_phase", nowTime);
-                return;
-            }
-
-            if (phaseSteps == null || phaseSteps.Count == 0)
-            {
-                if (!TryAdvanceToNextPhase(definition, instance, nowTime))
-                    CompleteInteraction(instance, InteractionRuntimeStatus.Completed, "phase_empty_complete", nowTime);
-                return;
-            }
-
-            if (instance.stepIndex < 0 || instance.stepIndex >= phaseSteps.Count)
-            {
-                if (!TryAdvanceToNextPhase(definition, instance, nowTime))
-                    CompleteInteraction(instance, InteractionRuntimeStatus.Completed, "phase_complete", nowTime);
-                return;
-            }
-
-            var step = phaseSteps[instance.stepIndex];
-            var actorNpcId = ResolveInteractionRoleNpcId(instance, step?.actorRole, preferActor: true);
-            var targetNpcId = ResolveInteractionRoleNpcId(instance, step?.targetRole, preferActor: false);
-            if (string.IsNullOrWhiteSpace(targetNpcId))
-            {
-                targetNpcId = string.Equals(actorNpcId, instance.actorNpcId, StringComparison.OrdinalIgnoreCase)
-                    ? instance.targetNpcId
-                    : instance.actorNpcId;
-            }
-
-            instance.currentActionType = step != null && !string.IsNullOrWhiteSpace(step.actionType)
-                ? step.actionType.Trim()
-                : string.Empty;
-            instance.currentActionActorId = actorNpcId ?? string.Empty;
-            instance.currentActionTargetId = targetNpcId ?? string.Empty;
-            instance.updatedAtTime = nowTime;
-
-            var actionType = step != null && !string.IsNullOrWhiteSpace(step.actionType)
-                ? step.actionType.Trim().ToLowerInvariant()
-                : string.Empty;
-
-            if (!TryApplyInteractionStep(instance, step, actorNpcId, targetNpcId, nowTime))
-            {
-                instance.nextStepAtTime = nowTime + 0.5f;
-                return;
-            }
-
-            if (actionType == InteractionActionTypes.EngageDialogue)
-            {
-                instance.awaitingDialogueStep = true;
-                instance.dialogueStepDeadline = nowTime + Mathf.Max(5f, interactionDialogueTimeoutSeconds);
-                instance.nextStepAtTime = nowTime + Mathf.Max(5f, interactionDialogueTimeoutSeconds);
-                return;
-            }
-
-            instance.nextStepAtTime = nowTime + Mathf.Max(0.2f, interactionStepDurationSeconds);
-            instance.stepIndex++;
-        }
-
-        bool TryApplyInteractionStep(
-            InteractionRuntimeInstance instance,
-            InteractionActionStep step,
-            string actorNpcId,
-            string targetNpcId,
-            float nowTime)
-        {
-            if (step == null || string.IsNullOrWhiteSpace(step.actionType))
-                return true;
-
-            var actionType = step.actionType.Trim().ToLowerInvariant();
-            if (actionType == InteractionActionTypes.MoveToLocation)
-            {
-                if (!IsMoveToLocationSatisfied(instance, step, actorNpcId))
-                {
-                    ApplyMoveToLocation(instance, step, actorNpcId);
-                    return false;
-                }
-            }
-            else if ((actionType == InteractionActionTypes.MoveToNpc || actionType == InteractionActionTypes.MoveToHero)
-                && !AreInteractionActorsInRange(actorNpcId, targetNpcId))
-            {
-                DispatchInitiatorApproach(instance);
-                return false;
-            }
-
-            if (actionType == InteractionActionTypes.EngageDialogue
-                && !AreInteractionActorsInRange(actorNpcId, targetNpcId))
-            {
-                DispatchInitiatorApproach(instance);
-                return false;
-            }
-
-            if ((actionType == InteractionActionTypes.ExchangeItem
-                    || actionType == InteractionActionTypes.ExchangeCoins)
-                && !AreInteractionActorsInRange(actorNpcId, targetNpcId))
-            {
-                DispatchInitiatorApproach(instance);
-                return false;
-            }
-
-            if (!ValidateInteractionStepReferences(instance, step, actorNpcId, targetNpcId, out var refError))
-            {
-                RecordInteractionStepResult(instance, new InteractionEffectResolver.StepResult(false, refError));
-                HandleInvalidInteractionStepReference(instance, actorNpcId, targetNpcId, refError, nowTime);
-                return true;
-            }
-
-            ApplyInteractionStep(instance, step, nowTime);
-            return true;
-        }
-
-        void HandleInvalidInteractionStepReference(
-            InteractionRuntimeInstance instance,
-            string actorNpcId,
-            string targetNpcId,
-            string refError,
-            float nowTime)
-        {
-            if (instance == null)
-                return;
-
-            _interactionDebugEvents.RecordReject(new VillageInteractionRejectEvent(
-                nowTime,
-                instance.instanceId,
-                instance.interactionId,
-                actorNpcId,
-                refError));
-
-            DialogueTelemetry.Log(
-                "VillageInteractionStepRejected",
-                $"instance={instance.instanceId}, interaction={instance.interactionId}, actor={actorNpcId}, target={targetNpcId}, reason={refError}");
-
-            if (!string.IsNullOrWhiteSpace(actorNpcId) && !IsHeroParticipant(actorNpcId))
-                RequestRedeliberation(actorNpcId, "invalid_interaction_ref");
-            if (!string.IsNullOrWhiteSpace(targetNpcId)
-                && !IsHeroParticipant(targetNpcId)
-                && !string.Equals(actorNpcId, targetNpcId, StringComparison.OrdinalIgnoreCase))
-            {
-                RequestRedeliberation(targetNpcId, "invalid_interaction_ref");
-            }
-
-            CompleteInteraction(instance, InteractionRuntimeStatus.Failed, refError, nowTime);
         }
 
         bool ValidateInteractionStepReferences(
@@ -2266,7 +1548,7 @@ namespace Rpg.Npc
             if (string.Equals(currentPhase, "loop", StringComparison.OrdinalIgnoreCase))
             {
                 instance.loopIteration++;
-                if (instance.loopIteration < Mathf.Max(0, maxLoopIterationsPerInteraction))
+                if (instance.loopIteration < 3)
                 {
                     instance.stepIndex = 0;
                     instance.updatedAtTime = nowTime;
@@ -2312,178 +1594,6 @@ namespace Rpg.Npc
             }
         }
 
-        void ApplyInteractionStep(InteractionRuntimeInstance instance, InteractionActionStep step, float nowTime)
-        {
-            if (step == null || string.IsNullOrWhiteSpace(step.actionType))
-                return;
-
-            var actionType = step.actionType.Trim().ToLowerInvariant();
-            var actorNpcId = ResolveInteractionRoleNpcId(instance, step.actorRole, preferActor: true);
-            var targetNpcId = ResolveInteractionRoleNpcId(instance, step.targetRole, preferActor: false);
-            if (string.IsNullOrWhiteSpace(targetNpcId))
-                targetNpcId = string.Equals(actorNpcId, instance.actorNpcId, StringComparison.OrdinalIgnoreCase)
-                    ? instance.targetNpcId
-                    : instance.actorNpcId;
-
-            switch (actionType)
-            {
-                case InteractionActionTypes.MoveToLocation:
-                    ApplyMoveToLocation(instance, step, actorNpcId);
-                    break;
-                case InteractionActionTypes.MoveToHero:
-                    if (!IsHeroParticipant(targetNpcId))
-                        targetNpcId = InventoryService.HeroActorId;
-                    if (!IsHeroParticipant(targetNpcId) || IsHeroParticipant(actorNpcId))
-                        break;
-                    if (TryGetRuntimeState(actorNpcId, out var heroMoverState)
-                        && heroMoverState != null
-                        && heroMoverState.Controller != null
-                        && TryResolveHeroTransform(out var heroTransform))
-                    {
-                        AssignNpcMovePlan(heroMoverState, heroTransform.position, interactionApproachMaxSeconds, 1.6f);
-                    }
-                    break;
-                case InteractionActionTypes.MoveToNpc:
-                    if (IsHeroParticipant(targetNpcId) && TryResolveHeroTransform(out var heroMoveTarget))
-                    {
-                        if (TryGetRuntimeState(actorNpcId, out var heroApproachState)
-                            && heroApproachState != null
-                            && heroApproachState.Controller != null)
-                        {
-                            AssignNpcMovePlan(
-                                heroApproachState,
-                                heroMoveTarget.position,
-                                interactionApproachMaxSeconds,
-                                1.6f);
-                        }
-                        break;
-                    }
-                    if (TryGetRuntimeState(actorNpcId, out var moverState)
-                        && moverState != null
-                        && moverState.Controller != null
-                        && !string.IsNullOrWhiteSpace(targetNpcId))
-                    {
-                        var plan = new List<NpcPrimitiveStep>
-                        {
-                            new NpcPrimitiveStep
-                            {
-                                PrimitiveType = NpcPrimitiveTypes.GotoNpc,
-                                TargetNpcId = targetNpcId,
-                                DurationSeconds = Mathf.Max(0.2f, interactionApproachMaxSeconds),
-                                StopDistanceMeters = 1.6f
-                            }
-                        };
-                        moverState.ActivePlan = plan;
-                        moverState.Controller.SetPlan(plan);
-                    }
-                    break;
-                case InteractionActionTypes.EngageDialogue:
-                    if (IsHeroParticipant(targetNpcId) && TryResolveHeroTransform(out var heroChatTarget))
-                    {
-                        if (TryGetRuntimeState(actorNpcId, out var heroSpeakerState)
-                            && heroSpeakerState != null
-                            && heroSpeakerState.Controller != null)
-                        {
-                            AssignNpcChatPlan(heroSpeakerState, InventoryService.HeroActorId, heroChatTarget.position, interactionStepDurationSeconds, 1.6f);
-                        }
-                    }
-                    else if (IsHeroParticipant(actorNpcId)
-                        && TryResolveHeroTransform(out var heroActorTarget)
-                        && TryGetRuntimeState(targetNpcId, out var heroTargetSpeaker)
-                        && heroTargetSpeaker != null
-                        && heroTargetSpeaker.Controller != null)
-                    {
-                        AssignNpcChatPlan(
-                            heroTargetSpeaker,
-                            InventoryService.HeroActorId,
-                            heroActorTarget.position,
-                            interactionStepDurationSeconds,
-                            1.6f);
-                    }
-                    else if (TryGetRuntimeState(actorNpcId, out var speakerState)
-                        && speakerState != null
-                        && speakerState.Controller != null
-                        && !string.IsNullOrWhiteSpace(targetNpcId)
-                        && TryGetRuntimeState(targetNpcId, out var targetState)
-                        && targetState != null)
-                    {
-                        var worldLocation = targetState.Binding != null
-                            ? targetState.Binding.transform.position
-                            : speakerState.Controller.transform.position;
-                        AssignNpcChatPlan(speakerState, targetNpcId, worldLocation, interactionStepDurationSeconds, 1.6f);
-                    }
-                    if (_opinionService != null
-                        && !string.IsNullOrWhiteSpace(actorNpcId)
-                        && !string.IsNullOrWhiteSpace(targetNpcId)
-                        && !IsHeroParticipant(actorNpcId)
-                        && !IsHeroParticipant(targetNpcId))
-                    {
-                        _opinionService.QueueInteraction(actorNpcId, targetNpcId);
-                    }
-
-                    var topic = ResolveInteractionStepTopic(step, instance);
-                    _lastDialoguePhase = instance.phase ?? "start";
-                    var manager = DialogueManager.Instance;
-                    if (manager != null)
-                    {
-                        manager.NotifyInteractionEngageDialogue(
-                            this,
-                            instance,
-                            actorNpcId,
-                            targetNpcId,
-                            topic,
-                            _lastDialoguePhase,
-                            step);
-                    }
-                    else if (_autoCompleteInteractionDialogue)
-                    {
-                        NotifyInteractionDialogueStepCompleted(instance.instanceId, true);
-                    }
-                    break;
-                case InteractionActionTypes.ExchangeItem:
-                    var itemResult = InteractionEffectResolver.ApplyExchangeItem(
-                        ResolveInventory(),
-                        instance,
-                        step,
-                        actorNpcId,
-                        targetNpcId);
-                    RecordInteractionStepResult(instance, itemResult);
-                    break;
-                case InteractionActionTypes.ExchangeCoins:
-                    var coinResult = InteractionEffectResolver.ApplyExchangeCoins(
-                        ResolveInventory(),
-                        instance,
-                        FindInteractionDefinition(instance.interactionId),
-                        step,
-                        actorNpcId,
-                        targetNpcId,
-                        _staticLocationIds,
-                        ResolveAgreements());
-                    RecordInteractionStepResult(instance, coinResult);
-                    if (_opinionService != null
-                        && !string.IsNullOrWhiteSpace(actorNpcId)
-                        && !string.IsNullOrWhiteSpace(targetNpcId))
-                    {
-                        _opinionService.QueueInteraction(actorNpcId, targetNpcId);
-                    }
-                    break;
-            }
-
-            instance.updatedAtTime = nowTime;
-            DialogueTelemetry.Log(
-                "VillageInteractionStep",
-                $"instance={instance.instanceId}, interaction={instance.interactionId}, phase={instance.phase}, step={instance.stepIndex}, action={actionType}, actor={instance.actorNpcId}, target={instance.targetNpcId}");
-        }
-
-        void RecordInteractionStepResult(InteractionRuntimeInstance instance, InteractionEffectResolver.StepResult result)
-        {
-            if (instance == null || string.IsNullOrWhiteSpace(result.Summary))
-                return;
-            instance.stepLog.Add(result.Summary);
-            if (instance.stepLog.Count > 12)
-                instance.stepLog.RemoveAt(0);
-        }
-
         static string ResolveInteractionRoleNpcId(InteractionRuntimeInstance instance, string role, bool preferActor)
         {
             if (instance == null)
@@ -2525,21 +1635,6 @@ namespace Rpg.Npc
             }
 
             return preferActor ? actor : target;
-        }
-
-        bool IsMoveToLocationSatisfied(
-            InteractionRuntimeInstance instance,
-            InteractionActionStep step,
-            string actorNpcId)
-        {
-            if (IsHeroParticipant(actorNpcId))
-                return true;
-            if (!TryResolveMoveToLocationPosition(instance, step, actorNpcId, out var destination))
-                return true;
-            if (!TryGetNpcPosition(actorNpcId, out var actorPos))
-                return false;
-            var delta = new Vector2(actorPos.x - destination.x, actorPos.z - destination.z);
-            return delta.magnitude <= Mathf.Max(0.5f, interactionEngageRangeMeters);
         }
 
         void ApplyMoveToLocation(InteractionRuntimeInstance instance, InteractionActionStep step, string actorNpcId)
@@ -2619,29 +1714,6 @@ namespace Rpg.Npc
             return step.parameters.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value)
                 ? value.Trim()
                 : string.Empty;
-        }
-
-        void CompleteInteraction(InteractionRuntimeInstance instance, InteractionRuntimeStatus status, string reason, float nowTime)
-        {
-            if (instance == null)
-                return;
-            var definition = FindInteractionDefinition(instance.interactionId);
-            if (status == InteractionRuntimeStatus.Completed)
-            {
-                var outcomeId = InteractionEffectResolver.ResolveOutcomeId(definition, instance);
-                instance.resolvedOutcomeId = outcomeId;
-                InteractionEffectResolver.ApplyOutcomeState(instance, definition, outcomeId, _opinionService);
-                _interactionMemory?.RecordInteractionCompleted(instance, definition, outcomeId, ResolveDisplayNameFromState);
-            }
-
-            instance.status = status;
-            instance.statusReason = reason ?? string.Empty;
-            instance.updatedAtTime = nowTime;
-            if (status != InteractionRuntimeStatus.Running)
-                UnlockNpcsForInteraction(instance);
-            DialogueTelemetry.Log(
-                "VillageInteractionCompleted",
-                $"instance={instance.instanceId}, interaction={instance.interactionId}, status={status}, reason={instance.statusReason}, outcome={instance.resolvedOutcomeId}, actor={instance.actorNpcId}, target={instance.targetNpcId}");
         }
 
         InteractionDefinition FindInteractionDefinition(string interactionId)
@@ -2929,9 +2001,6 @@ namespace Rpg.Npc
             return string.Join("\n", lines);
         }
 
-        bool ShouldAutoPromoteProposedInteractions() =>
-            autoPromoteProposedInteractionsInDevelopment && (Application.isEditor || Debug.isDebugBuild);
-
         void PersistProposedInteractions(List<InteractionDefinition> candidates)
         {
             if (_interactionRegistry == null || candidates == null || candidates.Count == 0)
@@ -2947,13 +2016,6 @@ namespace Rpg.Npc
                 {
                     persisted++;
                     DialogueTelemetry.Log("VillageInteractionProposed", $"id={candidate.id}");
-                    if (ShouldAutoPromoteProposedInteractions())
-                    {
-                        if (_interactionRegistry.TryPromoteProposedToActive(candidate.id.Trim(), out var promoteError))
-                            DialogueTelemetry.Log("VillageInteractionAutoPromoted", $"id={candidate.id}");
-                        else if (!string.IsNullOrWhiteSpace(promoteError))
-                            DialogueTelemetry.Log("VillageInteractionAutoPromoteRejected", $"id={candidate.id}, reason={promoteError}");
-                    }
                 }
                 else if (!string.IsNullOrWhiteSpace(error))
                 {
@@ -3094,7 +2156,7 @@ namespace Rpg.Npc
                 _telemetry?.RecordFallback();
             _telemetry?.RecordPlanCompletion(envelope != null && envelope.Success);
 
-            if (plan.Count > 0 && state.Controller != null && !IsNpcLockedByActiveInteraction(npcId))
+            if (plan.Count > 0 && state.Controller != null)
             {
                 state.ActivePlan = plan;
                 state.Controller.SetPlan(plan);

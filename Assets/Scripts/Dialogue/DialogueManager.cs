@@ -250,6 +250,8 @@ namespace Rpg.Dialogue
                 return;
             if (dialogueUi.GetComponent<VillageJournalPanel>() == null)
                 dialogueUi.gameObject.AddComponent<VillageJournalPanel>();
+            if (dialogueUi.GetComponent<VillageGroupAskPromptHud>() == null)
+                dialogueUi.gameObject.AddComponent<VillageGroupAskPromptHud>();
         }
 
         public void ConfigureRuntime(
@@ -1508,6 +1510,7 @@ namespace Rpg.Dialogue
             var activeSection = ResolveActiveNarrativeSection();
             var narrativeSectionBlock = BuildNarrativeSectionBlock(activeSection);
             var villageRumorFactsBlock = ResolveVillageRumorFactsBlock();
+            var villageStandingFactsBlock = ResolveVillageStandingFactsBlock(_activeNpc.npcId);
             var dialogueRoleRulesBlock = PromptComposer.BuildDialogueRoleRulesBlock(_activeNpc);
             if (_ollamaSettings.usePythonPolicyOrchestrator && _pythonClient != null && _activeNpc != null)
             {
@@ -1548,6 +1551,9 @@ namespace Rpg.Dialogue
                                 + (string.IsNullOrWhiteSpace(villageRumorFactsBlock)
                                     ? string.Empty
                                     : "\n\nRECENT_VILLAGE_RUMORS:\n" + villageRumorFactsBlock.Trim())
+                                + (string.IsNullOrWhiteSpace(villageStandingFactsBlock)
+                                    ? string.Empty
+                                    : "\n\nVILLAGE_STANDING:\n" + villageStandingFactsBlock.Trim())
                                 + (string.IsNullOrWhiteSpace(dialogueRoleRulesBlock)
                                     ? string.Empty
                                     : "\n\n" + dialogueRoleRulesBlock.Trim()),
@@ -1589,6 +1595,7 @@ namespace Rpg.Dialogue
                 multiPartyContext,
                 narrativeSectionBlock,
                 villageRumorFactsBlock,
+                villageStandingFactsBlock,
                 dialogueRoleRulesBlock);
 
             var model = string.IsNullOrWhiteSpace(_activeNpc.ollamaModelOverride)
@@ -2532,6 +2539,15 @@ namespace Rpg.Dialogue
             }
 
             return _narrativeGraph.BuildSectionContextBlock(section, stalls, redirectOverride);
+        }
+
+        string ResolveVillageStandingFactsBlock(string npcId)
+        {
+            var opinion = ResolveOpinionService();
+            if (opinion == null || string.IsNullOrWhiteSpace(npcId))
+                return string.Empty;
+            var lines = opinion.BuildDeliberationContext(npcId);
+            return lines == null || lines.Count == 0 ? string.Empty : string.Join("\n", lines);
         }
 
         string ResolveVillageRumorFactsBlock()

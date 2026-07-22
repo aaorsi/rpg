@@ -178,7 +178,9 @@ pytest
 
 ### Unity
 
-Use **Window -> General -> Test Runner -> EditMode**.
+Use **Window -> General -> Test Runner -> EditMode** locally, or see [docs/CI.md](docs/CI.md) for GitHub Actions.
+
+After Option A changes, run [docs/playtest/option-a-baseline.md](docs/playtest/option-a-baseline.md) before content tuning.
 
 ---
 
