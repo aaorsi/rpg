@@ -46,60 +46,23 @@ namespace Rpg.Npc.Tests.EditMode
         }
 
         [Test]
-        public void InteractionRunner_InvalidLocationStep_FailsAndRecordsRejectEvent()
+        public void InteractionRunner_Removed_DebugStartReturnsError()
         {
             CreateVillagerRoot("villager_ref_a");
             CreateVillagerRoot("villager_ref_b");
-            var simulationGo = new GameObject("village_simulation_epic37_invalid_ref");
+            var simulationGo = new GameObject("village_simulation_epic37_removed_fsm");
             _created.Add(simulationGo);
             var simulation = simulationGo.AddComponent<VillageAgentSimulation>();
             simulation.ConfigureForTests(new NoopTransport());
             simulation.TickSimulation(0f);
 
-            var badDefinition = new InteractionDefinition
-            {
-                id = "debug_bad_move",
-                status = "active",
-                phases = new InteractionPhases
-                {
-                    start = new List<InteractionActionStep>
-                    {
-                        new InteractionActionStep
-                        {
-                            actionType = InteractionActionTypes.MoveToLocation,
-                            actorRole = "initiator",
-                            parameters = new Dictionary<string, string> { { "locationRef", "nowhere_land" } }
-                        }
-                    }
-                }
-            };
-            Assert.IsTrue(simulation.TryRegisterDebugInteractionDefinition(badDefinition, out var registerError), registerError);
-            Assert.IsTrue(
-                simulation.TryStartInteractionForDebug("debug_bad_move", "villager_ref_a", "villager_ref_b", out var startError),
-                startError);
-            simulation.TickSimulation(0f);
-            simulation.TickSimulation(6f);
-
-            var failed = false;
-            var active = simulation.ActiveInteractions;
-            for (var i = 0; i < active.Count; i++)
-            {
-                var interaction = active[i];
-                if (interaction != null
-                    && string.Equals(interaction.interactionId, "debug_bad_move", System.StringComparison.OrdinalIgnoreCase)
-                    && interaction.status == InteractionRuntimeStatus.Failed)
-                {
-                    failed = true;
-                    break;
-                }
-            }
-
-            Assert.IsTrue(failed);
-            Assert.Greater(simulation.InteractionRejectEvents.Count, 0);
+            Assert.IsFalse(
+                simulation.TryStartInteractionForDebug("steal", "villager_ref_a", "villager_ref_b", out var startError));
+            Assert.AreEqual("interaction_fsm_removed", startError);
         }
 
         [Test]
-        public void GroupInteractionStart_BuildsThreePlusParticipantJoinContext()
+        public void GroupInteractionStart_Removed_ReturnsError()
         {
             CreateVillagerRoot("villager_grp_a");
             CreateVillagerRoot("villager_grp_b");
@@ -110,17 +73,13 @@ namespace Rpg.Npc.Tests.EditMode
             simulation.ConfigureForTests(new NoopTransport());
             simulation.TickSimulation(0f);
 
-            Assert.IsTrue(
+            Assert.IsFalse(
                 simulation.TryStartGroupInteractionForDebug(
                     "elect_mayor",
                     "villager_grp_a",
                     new List<string> { "villager_grp_b", "villager_grp_c" },
-                    out var error),
-                error);
-
-            Assert.IsTrue(simulation.TryAcquireHeroJoinContext(Vector3.zero, 100f, out var context), "join context");
-            Assert.IsNotNull(context);
-            Assert.GreaterOrEqual(context.ParticipantNpcIds.Count, 3);
+                    out var error));
+            Assert.AreEqual("interaction_fsm_removed", error);
         }
 
         [Test]

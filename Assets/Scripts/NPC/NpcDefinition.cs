@@ -29,5 +29,8 @@ namespace Rpg.Npc
             "I need a moment to think… try again?",
             "Sorry — my thoughts scattered. What did you ask?"
         };
+
+        [Tooltip("Option A: role-sensitive prompt scaffolding.")]
+        public NpcDialogueRole dialogueRole = NpcDialogueRole.Default;
     }
 }

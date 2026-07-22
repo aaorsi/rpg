@@ -52,6 +52,8 @@ namespace Rpg.Dialogue
         AgreementService _agreements;
         QuestStateService _questState;
         FailForwardService _failForward;
+        NarrativeGraphService _narrativeGraph;
+        TurnAuthorizer _turnAuthorizer;
         LocationBindingRegistry _locations;
         NarrativeReferenceValidator _refs;
         NarrativePersistencePolicy _persistencePolicy;
@@ -116,8 +118,6 @@ namespace Rpg.Dialogue
         }
 
         MultiPartyDialogueSession _multiPartySession;
-        Coroutine _autonomousInteractionCo;
-        bool _autonomousInteractionRunning;
 
         static readonly string[] SpeakerColorPalette =
         {
@@ -153,6 +153,7 @@ namespace Rpg.Dialogue
                     InventoryService.ClearAllForNewPlaySession();
                 if (_persistencePolicy == null || _persistencePolicy.clearQuestStateOnPlay)
                     QuestStateService.ClearAllForNewPlaySession();
+                VillageRumorFeed.ClearAllForNewPlaySession();
                 if (_persistencePolicy == null || _persistencePolicy.clearAgreementsOnPlay)
                     AgreementService.ClearAllForNewPlaySession();
                 if (_persistencePolicy == null || _persistencePolicy.clearCanonOnPlay)
@@ -240,6 +241,15 @@ namespace Rpg.Dialogue
                 policy = pol;
             if (policy == null)
                 policy = ScriptableObject.CreateInstance<DialoguePolicy>();
+            EnsureJournalPanel(u);
+        }
+
+        static void EnsureJournalPanel(DialogueUIController dialogueUi)
+        {
+            if (dialogueUi == null)
+                return;
+            if (dialogueUi.GetComponent<VillageJournalPanel>() == null)
+                dialogueUi.gameObject.AddComponent<VillageJournalPanel>();
         }
 
         public void ConfigureRuntime(
@@ -264,6 +274,8 @@ namespace Rpg.Dialogue
             _agreements = new AgreementService();
             _questState = new QuestStateService();
             _failForward = new FailForwardService();
+            _narrativeGraph = new NarrativeGraphService();
+            _turnAuthorizer = new TurnAuthorizer();
             _locations = new LocationBindingRegistry(_contentLibrary.LoadLocationCatalog());
             _sessionStore = new NarrativeSessionStore();
             _refs = BuildReferenceValidator();
@@ -279,6 +291,15 @@ namespace Rpg.Dialogue
 
         public int RuntimeGenerationSeed => _runtimeGenerationSeed;
         public NarrativeSessionCanon CurrentCanon => _narrativeCanon;
+
+        public bool IsQuestStateReady => _questState != null;
+
+        public void ApplyQuestSignalsFromVillage(string sourceNpcId, IReadOnlyList<string> signals)
+        {
+            if (_questState == null || signals == null || signals.Count == 0)
+                return;
+            _questState.ApplySignals(sourceNpcId ?? "village", signals);
+        }
 
         public async Task GenerateNarrativeCanonAsync(int? seedOverride = null, IReadOnlyList<string> npcIds = null)
         {
@@ -387,114 +408,11 @@ namespace Rpg.Dialogue
             return TryStartDialogue(npc, forcedNpcOpening, true);
         }
 
-        public bool TryStartNearbyInteractionDialogue(VillageAgentSimulation simulation, Vector3 heroWorldPosition, float joinRadiusMeters)
-        {
-            if (simulation == null || simulation.IsSystemicOnlyMode || _dialogueOpen || ui == null)
-                return false;
-            if (!simulation.TryAcquireHeroJoinContext(heroWorldPosition, joinRadiusMeters, out var joinContext) || joinContext == null)
-                return false;
+        public bool TryStartNearbyInteractionDialogue(VillageAgentSimulation simulation, Vector3 heroWorldPosition, float joinRadiusMeters) =>
+            false;
 
-            var participants = new List<NpcDefinition>();
-            for (var i = 0; i < joinContext.ParticipantNpcIds.Count; i++)
-            {
-                var npcId = joinContext.ParticipantNpcIds[i];
-                var definition = ResolveNpcDefinitionById(npcId);
-                if (definition != null)
-                    participants.Add(definition);
-            }
-
-            if (participants.Count == 0)
-                return false;
-
-            var primary = participants[0];
-            var opening = $"You approach as {primary.displayName} and others continue {joinContext.InteractionDisplayName}.";
-            if (!TryStartDialogue(primary, opening, false, skipOpeningLine: true))
-                return false;
-            if (!simulation.TryMarkInteractionJoinedByHero(joinContext.InteractionInstanceId, out _))
-            {
-                EndDialogue();
-                return false;
-            }
-
-            _multiPartySession = new MultiPartyDialogueSession
-            {
-                Simulation = simulation,
-                InteractionInstanceId = joinContext.InteractionInstanceId,
-                InteractionDisplayName = joinContext.InteractionDisplayName,
-                SpeakerIndex = 0
-            };
-            foreach (var npc in participants)
-            {
-                if (npc == null || string.IsNullOrWhiteSpace(npc.npcId))
-                    continue;
-                _multiPartySession.Participants.Add(npc);
-                _multiPartySession.ParticipantNpcIds.Add(npc.npcId);
-            }
-            if (_multiPartySession.Participants.Count > 0)
-                _activeNpc = _multiPartySession.Participants[0];
-
-            ui.BeginConversationLog(BuildMultiPartyWindowTitle(_multiPartySession), true);
-            ui.AppendSystemLine(BuildMultiPartySummaryLine(_multiPartySession));
-            EmitNpcLineWithSpeech(FormatGhoulNpcSpeechForUi(primary, opening), opening);
-            return true;
-        }
-
-        public bool TryStartDirectMultiPartyDialogue(IReadOnlyList<string> npcIds, string sessionLabel, string openingLine = null)
-        {
-            if (IsSystemicOnlySimulationActive())
-                return false;
-            if (_dialogueOpen || ui == null || npcIds == null || npcIds.Count < 2)
-                return false;
-
-            var participants = new List<NpcDefinition>();
-            var participantIds = new List<string>();
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            for (var i = 0; i < npcIds.Count; i++)
-            {
-                var npcId = npcIds[i];
-                if (string.IsNullOrWhiteSpace(npcId) || !seen.Add(npcId.Trim()))
-                    continue;
-                var definition = ResolveNpcDefinitionById(npcId.Trim());
-                if (definition == null)
-                    continue;
-                participants.Add(definition);
-                participantIds.Add(definition.npcId);
-            }
-
-            if (participants.Count < 2)
-                return false;
-
-            var primary = participants[0];
-            var label = string.IsNullOrWhiteSpace(sessionLabel) ? "a group discussion" : sessionLabel.Trim();
-            var opening = string.IsNullOrWhiteSpace(openingLine)
-                ? $"You step into {label} with {primary.displayName} and others."
-                : openingLine.Trim();
-            if (!TryStartDialogue(primary, opening, false, skipOpeningLine: true))
-                return false;
-
-            _multiPartySession = new MultiPartyDialogueSession
-            {
-                InteractionDisplayName = label,
-                SpeakerIndex = 0
-            };
-            for (var i = 0; i < participants.Count; i++)
-            {
-                var npc = participants[i];
-                if (npc == null || string.IsNullOrWhiteSpace(npc.npcId))
-                    continue;
-                _multiPartySession.Participants.Add(npc);
-                _multiPartySession.ParticipantNpcIds.Add(npc.npcId);
-            }
-
-            if (_multiPartySession.Participants.Count > 0)
-                _activeNpc = _multiPartySession.Participants[0];
-            var groupTitle = BuildMultiPartyWindowTitle(_multiPartySession);
-            ui.BeginConversationLog(groupTitle, true);
-            ui.AppendSystemLine(BuildMultiPartySummaryLine(_multiPartySession));
-            ui.AppendSystemLine("Multi-party mode: speakers rotate each turn. You may listen or join in anytime.");
-            EmitNpcLineWithSpeech(FormatGhoulNpcSpeechForUi(primary, opening), opening);
-            return true;
-        }
+        public bool TryStartDirectMultiPartyDialogue(IReadOnlyList<string> npcIds, string sessionLabel, string openingLine = null) =>
+            false;
 
         public void NotifyInteractionEngageDialogue(
             VillageAgentSimulation simulation,
@@ -507,74 +425,7 @@ namespace Rpg.Dialogue
         {
             if (instance == null)
                 return;
-
-            if (simulation != null && simulation.IsSystemicOnlyMode)
-            {
-                simulation.NotifyInteractionDialogueStepCompleted(instance.instanceId, true);
-                return;
-            }
-
-            var speakerId = IsHeroParticipant(actorNpcId) ? targetNpcId : actorNpcId;
-            if (string.IsNullOrWhiteSpace(speakerId) || IsHeroParticipant(speakerId))
-            {
-                simulation?.NotifyInteractionDialogueStepCompleted(instance.instanceId, false);
-                return;
-            }
-
-            var speaker = ResolveNpcDefinitionById(speakerId);
-            if (speaker == null)
-            {
-                simulation?.NotifyInteractionDialogueStepCompleted(instance.instanceId, false);
-                return;
-            }
-
-            var targetName = IsHeroParticipant(targetNpcId)
-                ? "the traveler"
-                : ResolveNpcDefinitionById(targetNpcId)?.displayName ?? targetNpcId;
-            var label = string.IsNullOrWhiteSpace(instance.interactionDisplayName)
-                ? instance.interactionId
-                : instance.interactionDisplayName.Trim();
-            var topicLabel = string.IsNullOrWhiteSpace(topic) ? label : topic.Trim();
-            var heroInvolved = IsHeroParticipant(actorNpcId) || IsHeroParticipant(targetNpcId);
-
-            if (_autonomousInteractionCo != null)
-                StopCoroutine(_autonomousInteractionCo);
-
-            if (!heroInvolved && !_dialogueOpen)
-            {
-                _autonomousInteractionCo = StartCoroutine(
-                    CoRunBackgroundInteractionDialogueBeat(simulation, instance, speaker, targetName, phase, step));
-                return;
-            }
-
-            if (ui == null)
-            {
-                simulation?.NotifyInteractionDialogueStepCompleted(instance.instanceId, false);
-                return;
-            }
-
-            var windowTitle = $"{label}: {speaker.displayName} & {targetName}";
-
-            _multiPartySession = null;
-            var freshOpen = !_dialogueOpen;
-            if (freshOpen)
-            {
-                if (!TryStartDialogue(speaker, string.Empty, false, skipOpeningLine: true))
-                {
-                    simulation?.NotifyInteractionDialogueStepCompleted(instance.instanceId, false);
-                    return;
-                }
-            }
-            else
-            {
-                _activeNpc = speaker;
-            }
-
-            ui.BeginConversationLog(windowTitle, freshOpen);
-            ui.AppendSystemLine($"{speaker.displayName} approaches {targetName} ({label}).");
-
-            _autonomousInteractionCo = StartCoroutine(
-                CoRunSingleInteractionDialogueLine(simulation, instance, speaker, targetName, topicLabel, phase, step));
+            simulation?.NotifyInteractionDialogueStepCompleted(instance.instanceId, true);
         }
 
         static bool IsHeroParticipant(string npcId) =>
@@ -584,271 +435,6 @@ namespace Rpg.Dialogue
         {
             var simulation = UnityEngine.Object.FindFirstObjectByType<VillageAgentSimulation>(FindObjectsInactive.Exclude);
             return simulation != null && simulation.IsSystemicOnlyMode;
-        }
-
-        IEnumerator CoRunBackgroundInteractionDialogueBeat(
-            VillageAgentSimulation simulation,
-            InteractionRuntimeInstance instance,
-            NpcDefinition speaker,
-            string targetName,
-            string phase,
-            InteractionActionStep step)
-        {
-            if (speaker == null || instance == null)
-            {
-                simulation?.NotifyInteractionDialogueStepCompleted(instance?.instanceId, false);
-                yield break;
-            }
-
-            _autonomousInteractionRunning = true;
-            var lineText = InteractionDialogueScript.ResolveBackgroundBeatLine(
-                instance,
-                speaker.displayName,
-                targetName,
-                phase,
-                step);
-            if (!string.IsNullOrWhiteSpace(lineText))
-                ShowHudMessage($"{speaker.displayName}: {lineText}");
-            _autonomousInteractionRunning = false;
-            _autonomousInteractionCo = null;
-            simulation?.NotifyInteractionDialogueStepCompleted(instance.instanceId, true);
-        }
-
-        IEnumerator CoRunHudInteractionDialogueLine(
-            VillageAgentSimulation simulation,
-            InteractionRuntimeInstance instance,
-            NpcDefinition speaker,
-            string targetName,
-            string topic,
-            string phase,
-            InteractionActionStep step)
-        {
-            if (speaker == null || instance == null)
-            {
-                simulation?.NotifyInteractionDialogueStepCompleted(instance?.instanceId, false);
-                yield break;
-            }
-
-            _autonomousInteractionRunning = true;
-            var task = GenerateNpcAutonomousLineAsync(speaker, targetName, instance, topic, phase, step);
-            while (!task.IsCompleted)
-                yield return null;
-
-            var result = task.Result;
-            var succeeded = string.IsNullOrEmpty(result.Error) && !string.IsNullOrWhiteSpace(result.DisplayText);
-            if (succeeded)
-            {
-                var line = $"{speaker.displayName}: {result.DisplayText.Trim()}";
-                ShowHudMessage(line);
-            }
-            else if (!string.IsNullOrWhiteSpace(result.Error))
-            {
-                var fallback = PickFallback(speaker);
-                if (!string.IsNullOrWhiteSpace(fallback))
-                    ShowHudMessage($"{speaker.displayName}: {fallback}");
-            }
-
-            _autonomousInteractionRunning = false;
-            _autonomousInteractionCo = null;
-            simulation?.NotifyInteractionDialogueStepCompleted(instance.instanceId, succeeded);
-        }
-
-        IEnumerator CoRunSingleInteractionDialogueLine(
-            VillageAgentSimulation simulation,
-            InteractionRuntimeInstance instance,
-            NpcDefinition speaker,
-            string targetName,
-            string topic,
-            string phase,
-            InteractionActionStep step)
-        {
-            if (speaker == null || ui == null || instance == null)
-            {
-                simulation?.NotifyInteractionDialogueStepCompleted(instance?.instanceId, false);
-                yield break;
-            }
-            _autonomousInteractionRunning = true;
-            _activeNpc = speaker;
-            ui.SetThinking(true);
-            var task = GenerateNpcAutonomousLineAsync(speaker, targetName, instance, topic, phase, step);
-            while (!task.IsCompleted)
-                yield return null;
-            ui.SetThinking(false);
-            var result = task.Result;
-            var succeeded = string.IsNullOrEmpty(result.Error) && !string.IsNullOrWhiteSpace(result.DisplayText);
-            if (succeeded)
-            {
-                var line = FormatGhoulNpcSpeechForUi(speaker, result.DisplayText);
-                EmitNpcLineWithSpeech(line, result.DisplayText);
-            }
-            else if (!string.IsNullOrWhiteSpace(result.Error))
-            {
-                var fallback = PickFallback(speaker);
-                if (!string.IsNullOrWhiteSpace(fallback))
-                {
-                    EmitNpcLineWithSpeech(FormatGhoulNpcSpeechForUi(speaker, fallback), fallback);
-                    succeeded = true;
-                }
-            }
-
-            _autonomousInteractionRunning = false;
-            _autonomousInteractionCo = null;
-            simulation?.NotifyInteractionDialogueStepCompleted(instance.instanceId, succeeded);
-        }
-
-        async Task<DialogueResult> GenerateNpcAutonomousLineAsync(
-            NpcDefinition speaker,
-            string targetName,
-            InteractionRuntimeInstance instance,
-            string topic,
-            string phase,
-            InteractionActionStep step)
-        {
-            if (speaker == null)
-                return DialogueResult.FromError("No speaker.");
-            if (_ollamaSettings == null || _ollamaClient == null)
-                return DialogueResult.FromError("Dialogue not configured (missing Ollama settings).");
-
-            var prompt = InteractionDialogueScript.BuildDialoguePrompt(
-                instance,
-                speaker.displayName,
-                targetName,
-                topic,
-                phase,
-                step);
-            var model = string.IsNullOrWhiteSpace(speaker.ollamaModelOverride)
-                ? _ollamaSettings.model
-                : speaker.ollamaModelOverride;
-            var token = _cts != null ? _cts.Token : CancellationToken.None;
-
-            if (_ollamaSettings.usePythonPolicyOrchestrator && _pythonClient != null)
-            {
-                try
-                {
-                    var req = new PythonInteractionLineRequestDto
-                    {
-                        requestId = Guid.NewGuid().ToString("N"),
-                        model = model,
-                        npcId = speaker.npcId ?? string.Empty,
-                        displayName = speaker.displayName ?? string.Empty,
-                        prompt = prompt,
-                        apiToken = _ollamaSettings.providerApiToken,
-                        providerBaseUrl = _ollamaSettings.providerBaseUrl
-                    };
-                    var envelope = await _pythonClient.InteractionLineAsync(req, token);
-                    if (envelope != null && envelope.ok && envelope.interaction != null
-                        && !string.IsNullOrWhiteSpace(envelope.interaction.say))
-                    {
-                        return DialogueResult.FromModel(
-                            envelope.interaction.say,
-                            envelope.interaction.rawAssistant ?? envelope.interaction.say,
-                            false,
-                            null);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    DialogueTelemetry.Log("PythonInteractionLineFail", ex.Message + " | falling back to direct Ollama.");
-                }
-            }
-
-            var messages = new List<OllamaMessageDto>
-            {
-                new OllamaMessageDto
-                {
-                    role = "system",
-                    content =
-                        "You are an NPC in a village RPG. Reply with ONLY valid JSON: {\"say\":\"one short in-character line\"}. " +
-                        "No markdown, no extra keys."
-                },
-                new OllamaMessageDto { role = "user", content = prompt }
-            };
-
-            try
-            {
-                var http = await _ollamaClient.ChatAsync(
-                    messages,
-                    model,
-                    token);
-                if (!http.IsSuccess)
-                    return DialogueResult.FromError(http.Error);
-
-                var raw = http.AssistantContent.Trim();
-                if (ResponseValidator.TryParseModelResponse(raw, out var payload)
-                    && !string.IsNullOrWhiteSpace(payload.Say))
-                {
-                    return DialogueResult.FromModel(payload.Say, raw, payload.AckYear, payload);
-                }
-
-                if (!string.IsNullOrWhiteSpace(raw) && raw.Length <= 280 && raw.IndexOf('{') < 0)
-                    return DialogueResult.FromModel(raw, raw, false, null);
-            }
-            catch (OperationCanceledException)
-            {
-                return DialogueResult.FromError("Cancelled.");
-            }
-
-            return DialogueResult.FromError("Autonomous interaction line parse failed.");
-        }
-
-        async Task<DialogueResult> GenerateInteractionNpcLineAsync(
-            NpcDefinition speaker,
-            string targetName,
-            InteractionRuntimeInstance instance,
-            string topic,
-            string phase,
-            InteractionActionStep step)
-        {
-            return await GenerateNpcAutonomousLineAsync(speaker, targetName, instance, topic, phase, step);
-        }
-
-        MultiPartyDialogueSession BuildInteractionMultiPartySession(
-            VillageAgentSimulation simulation,
-            InteractionRuntimeInstance instance)
-        {
-            var session = new MultiPartyDialogueSession
-            {
-                Simulation = simulation,
-                InteractionInstanceId = instance.instanceId,
-                InteractionDisplayName = instance.interactionDisplayName,
-                AutonomousMode = true
-            };
-            AddInteractionNpcParticipant(session, instance.actorNpcId);
-            AddInteractionNpcParticipant(session, instance.targetNpcId);
-            if (instance.extraParticipantNpcIds != null)
-            {
-                for (var i = 0; i < instance.extraParticipantNpcIds.Count; i++)
-                    AddInteractionNpcParticipant(session, instance.extraParticipantNpcIds[i]);
-            }
-
-            return session;
-        }
-
-        void EnsureInteractionDialogueSession(VillageAgentSimulation simulation, InteractionRuntimeInstance instance)
-        {
-            if (_multiPartySession != null
-                && string.Equals(_multiPartySession.InteractionInstanceId, instance.instanceId, StringComparison.OrdinalIgnoreCase))
-                return;
-            _multiPartySession = BuildInteractionMultiPartySession(simulation, instance);
-        }
-
-        static void AddInteractionNpcParticipant(MultiPartyDialogueSession session, string npcId)
-        {
-            if (session == null || string.IsNullOrWhiteSpace(npcId))
-                return;
-            if (string.Equals(npcId.Trim(), InventoryService.HeroActorId, StringComparison.OrdinalIgnoreCase))
-                return;
-            for (var i = 0; i < session.ParticipantNpcIds.Count; i++)
-            {
-                if (string.Equals(session.ParticipantNpcIds[i], npcId, StringComparison.OrdinalIgnoreCase))
-                    return;
-            }
-
-            var definition = ResolveNpcDefinitionByIdStatic(npcId);
-            if (definition == null)
-                return;
-            session.ParticipantNpcIds.Add(definition.npcId);
-            session.Participants.Add(definition);
         }
 
         static NpcDefinition ResolveNpcDefinitionByIdStatic(string npcId)
@@ -908,59 +494,6 @@ namespace Rpg.Dialogue
             }
         }
 
-        IEnumerator CoRunAutonomousInteractionBeats(string topic, int beatCount)
-        {
-            if (_multiPartySession == null || _multiPartySession.Participants.Count == 0 || ui == null)
-                yield break;
-            _autonomousInteractionRunning = true;
-            beatCount = Mathf.Max(1, beatCount);
-            for (var beat = 0; beat < beatCount; beat++)
-            {
-                if (!_dialogueOpen || _multiPartySession == null)
-                    break;
-                var speaker = ResolveSpeakerForCurrentTurn();
-                if (speaker == null)
-                    break;
-                _activeNpc = speaker;
-                ui.SetThinking(true);
-                var task = GenerateAutonomousNpcLineAsync(speaker, topic);
-                while (!task.IsCompleted)
-                    yield return null;
-                ui.SetThinking(false);
-                var result = task.Result;
-                if (string.IsNullOrEmpty(result.Error) && !string.IsNullOrWhiteSpace(result.DisplayText))
-                {
-                    var line = FormatGhoulNpcSpeechForUi(speaker, result.DisplayText);
-                    EmitNpcLineWithSpeech(line, result.DisplayText);
-                }
-                else if (!string.IsNullOrWhiteSpace(result.Error))
-                {
-                    var fallback = PickFallback(speaker);
-                    if (!string.IsNullOrWhiteSpace(fallback))
-                        EmitNpcLineWithSpeech(FormatGhoulNpcSpeechForUi(speaker, fallback), fallback);
-                }
-
-                AdvanceMultiPartySpeaker();
-                yield return new WaitForSeconds(1.4f);
-            }
-
-            _autonomousInteractionRunning = false;
-            _autonomousInteractionCo = null;
-        }
-
-        async Task<DialogueResult> GenerateAutonomousNpcLineAsync(NpcDefinition speaker, string topic)
-        {
-            if (speaker == null)
-                return DialogueResult.FromError("No speaker.");
-            var others = _multiPartySession != null ? BuildParticipantNameList(_multiPartySession) : string.Empty;
-            var prompt =
-                $"[AUTONOMOUS_VILLAGE_SCENE: Continue the group interaction about '{topic}'. " +
-                $"Other participants present: {others}. Speak one short in-character line. " +
-                "Do not ask the hero a direct question; advance the scene among villagers.]";
-            _activeNpc = speaker;
-            return await SubmitPlayerLineAsync(prompt, _cts != null ? _cts.Token : CancellationToken.None);
-        }
-
         public bool TryStartDialogue(NpcDefinition npc, string forcedNpcOpening, bool chickenTheftSession, bool skipOpeningLine = false)
         {
             if (_dialogueOpen || npc == null || ui == null)
@@ -990,7 +523,7 @@ namespace Rpg.Dialogue
             CancelDialogueSpeech();
             EnsureNpcVoiceAssigned(npc.npcId);
 
-            ui.Open(npc.displayName);
+            ui.Open(npc.displayName, BuildAttitudeSubtitle(npc.npcId));
             _inventory?.EnsureSeededNpc(npc.npcId);
             UpdateInventoryDebugUi(npc.npcId);
             _chickenTheftScenario.OnDialogueStart(npc.npcId, chickenTheftSession);
@@ -1010,8 +543,11 @@ namespace Rpg.Dialogue
                     var generatedIntro = BuildGeneratedOpeningLine(npc.npcId);
                     if (!string.IsNullOrWhiteSpace(generatedIntro))
                         EmitNpcLineWithSpeech(FormatGhoulNpcSpeechForUi(npc, generatedIntro), generatedIntro);
-                    else if (!string.IsNullOrWhiteSpace(npc.openingLine))
-                        EmitNpcLineWithSpeech(FormatGhoulNpcSpeechForUi(npc, npc.openingLine), npc.openingLine);
+                    else
+                    {
+                        var contextual = BuildContextualOpening(npc);
+                        EmitNpcLineWithSpeech(FormatGhoulNpcSpeechForUi(npc, contextual), contextual);
+                    }
                 }
             }
 
@@ -1171,12 +707,6 @@ namespace Rpg.Dialogue
             _dialogueOpen = false;
             _activeNpc = null;
             _session = null;
-            if (_autonomousInteractionCo != null)
-            {
-                StopCoroutine(_autonomousInteractionCo);
-                _autonomousInteractionCo = null;
-            }
-            _autonomousInteractionRunning = false;
             _multiPartySession = null;
             _cts?.Cancel();
             CancelDialogueSpeech();
@@ -1936,6 +1466,15 @@ namespace Rpg.Dialogue
             if (_transcriptRepo != null && _activeNpc != null)
                 _transcriptRepo.Save(_activeNpc.npcId, _session.GetRecentTurnMessages(), markConversationEnded: false);
             ProcessOutcomeTelemetryAndFailForward(_activeNpc.npcId, payload);
+            var section = ResolveActiveNarrativeSection();
+            _turnAuthorizer?.NoteTurnResult(section, payload);
+            if (section != null && _turnAuthorizer != null && _turnAuthorizer.ShouldEscalate(section))
+            {
+                DialogueTelemetry.Log(
+                    "TurnAuthorizerEscalation",
+                    $"section={section.id}, stalls={_turnAuthorizer.GetStallCount(section)}");
+            }
+
             ApplyFailForwardForMilestones(_activeNpc.npcId);
             _sessionBreakInset = null;
             return DialogueResult.FromModel(payload.Say, rawAssistant, payload.AckYear, payload);
@@ -1966,6 +1505,10 @@ namespace Rpg.Dialogue
             var activePlanContext = ResolveActivePlanContext(_activeNpc.npcId);
             var activeGoalsContext = ResolveActiveGoalsContext(_activeNpc.npcId, profile, persona);
             var multiPartyContext = BuildMultiPartyContextBlock(_activeNpc.npcId);
+            var activeSection = ResolveActiveNarrativeSection();
+            var narrativeSectionBlock = BuildNarrativeSectionBlock(activeSection);
+            var villageRumorFactsBlock = ResolveVillageRumorFactsBlock();
+            var dialogueRoleRulesBlock = PromptComposer.BuildDialogueRoleRulesBlock(_activeNpc);
             if (_ollamaSettings.usePythonPolicyOrchestrator && _pythonClient != null && _activeNpc != null)
             {
                 try
@@ -1998,7 +1541,16 @@ namespace Rpg.Dialogue
                             summaryBlock = BuildSummaryBlockForSidecar(npcSummary),
                             inventoryBlock = inventoryBlock,
                             surroundingsBlock = NpcSurroundingsScanner.BuildPromptBlock(_activeNpc.npcId),
-                            narrativeBlock = BuildNarrativeBlockForSidecar(_narrativeCanon, _activeNpc.npcId),
+                            narrativeBlock = BuildNarrativeBlockForSidecar(_narrativeCanon, _activeNpc.npcId)
+                                + (string.IsNullOrWhiteSpace(narrativeSectionBlock)
+                                    ? string.Empty
+                                    : "\n\n" + narrativeSectionBlock)
+                                + (string.IsNullOrWhiteSpace(villageRumorFactsBlock)
+                                    ? string.Empty
+                                    : "\n\nRECENT_VILLAGE_RUMORS:\n" + villageRumorFactsBlock.Trim())
+                                + (string.IsNullOrWhiteSpace(dialogueRoleRulesBlock)
+                                    ? string.Empty
+                                    : "\n\n" + dialogueRoleRulesBlock.Trim()),
                             recentTurns = _session != null ? new List<OllamaMessageDto>(_session.GetRecentTurnMessages()) : new List<OllamaMessageDto>(),
                             latestPlayerLine = playerLine ?? string.Empty
                         }
@@ -2034,7 +1586,10 @@ namespace Rpg.Dialogue
                 ResolveCapabilities(profile, persona, type),
                 activePlanContext,
                 activeGoalsContext,
-                multiPartyContext);
+                multiPartyContext,
+                narrativeSectionBlock,
+                villageRumorFactsBlock,
+                dialogueRoleRulesBlock);
 
             var model = string.IsNullOrWhiteSpace(_activeNpc.ollamaModelOverride)
                 ? _ollamaSettings.model
@@ -2904,6 +2459,136 @@ namespace Rpg.Dialogue
         {
             var bootstrap = UnityEngine.Object.FindFirstObjectByType<RuntimeLevelBootstrap>();
             bootstrap?.RefreshNpcInventoryItemVisuals();
+        }
+
+        public string BuildJournalText()
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("Milestones");
+            var milestones = _questState != null ? _questState.Snapshot() : new List<MilestoneStateEntry>();
+            if (milestones.Count == 0)
+            {
+                sb.AppendLine("  (none yet)");
+            }
+            else
+            {
+                for (var i = 0; i < milestones.Count; i++)
+                {
+                    var m = milestones[i];
+                    if (m == null || string.IsNullOrWhiteSpace(m.milestoneId))
+                        continue;
+                    sb.AppendLine($"  • {m.milestoneId} [{m.status}]");
+                }
+            }
+
+            sb.AppendLine();
+            sb.AppendLine("Recent rumors");
+            var simulation = UnityEngine.Object.FindFirstObjectByType<VillageAgentSimulation>(FindObjectsInactive.Exclude);
+            var rumors = simulation?.RumorFeed?.SnapshotRecent(5) ?? new List<VillageConsequenceEvent>();
+            if (rumors.Count == 0)
+            {
+                sb.AppendLine("  (none yet)");
+            }
+            else
+            {
+                for (var i = 0; i < rumors.Count; i++)
+                {
+                    var rumor = rumors[i];
+                    if (rumor == null || string.IsNullOrWhiteSpace(rumor.rumorText))
+                        continue;
+                    sb.AppendLine("  • " + rumor.rumorText.Trim());
+                }
+            }
+
+            var section = ResolveActiveNarrativeSection();
+            if (section != null)
+            {
+                sb.AppendLine();
+                sb.AppendLine("Current focus");
+                sb.AppendLine("  " + section.objective);
+            }
+
+            return sb.ToString().Trim();
+        }
+
+        NarrativeGraphSection ResolveActiveNarrativeSection()
+        {
+            if (_narrativeGraph == null || _questState == null)
+                return null;
+            return _narrativeGraph.ResolveActiveSection(_questState.Snapshot());
+        }
+
+        string BuildNarrativeSectionBlock(NarrativeGraphSection section)
+        {
+            if (_narrativeGraph == null || section == null || _turnAuthorizer == null)
+                return string.Empty;
+            var stalls = _turnAuthorizer.GetStallCount(section);
+            string redirectOverride = null;
+            if (_turnAuthorizer.ShouldEscalate(section)
+                && section.redirectHints != null
+                && section.redirectHints.Count > 0)
+            {
+                redirectOverride = section.redirectHints[Mathf.Clamp(stalls, 0, section.redirectHints.Count - 1)];
+            }
+
+            return _narrativeGraph.BuildSectionContextBlock(section, stalls, redirectOverride);
+        }
+
+        string ResolveVillageRumorFactsBlock()
+        {
+            var simulation = UnityEngine.Object.FindFirstObjectByType<VillageAgentSimulation>(FindObjectsInactive.Exclude);
+            return simulation?.RumorFeed?.BuildFactsBlock() ?? "(No recent village rumors.)";
+        }
+
+        VillageOpinionService ResolveOpinionService()
+        {
+            var simulation = UnityEngine.Object.FindFirstObjectByType<VillageAgentSimulation>(FindObjectsInactive.Exclude);
+            return simulation?.OpinionService;
+        }
+
+        public string BuildAttitudeSubtitle(string npcId)
+        {
+            if (string.IsNullOrWhiteSpace(npcId))
+                return string.Empty;
+            var opinion = ResolveOpinionService();
+            if (opinion == null)
+                return string.Empty;
+            var score = opinion.GetOpinionTowardHero(npcId);
+            string tone;
+            if (score >= 35f)
+                tone = "warm toward you";
+            else if (score >= 10f)
+                tone = "cautiously friendly";
+            else if (score <= -35f)
+                tone = "hostile toward you";
+            else if (score <= -10f)
+                tone = " wary of you";
+            else
+                tone = "neutral";
+
+            var simulation = UnityEngine.Object.FindFirstObjectByType<VillageAgentSimulation>(FindObjectsInactive.Exclude);
+            var rumor = simulation?.RumorFeed?.GetLatestForNpc(npcId);
+            if (rumor != null && !string.IsNullOrWhiteSpace(rumor.rumorText))
+                return $"{tone} — village talk: {rumor.rumorText.Trim()}";
+            return tone;
+        }
+
+        string BuildContextualOpening(NpcDefinition npc)
+        {
+            if (npc == null)
+                return string.Empty;
+            if (!string.IsNullOrWhiteSpace(npc.openingLine))
+                return npc.openingLine.Trim();
+
+            var section = ResolveActiveNarrativeSection();
+            if (section != null && !string.IsNullOrWhiteSpace(section.objective))
+                return $"Ah, traveler — {section.objective}";
+
+            var attitude = BuildAttitudeSubtitle(npc.npcId);
+            if (!string.IsNullOrWhiteSpace(attitude))
+                return $"Hello. You find me {attitude}. What do you need?";
+
+            return "Hello there. What brings you to me?";
         }
     }
 }

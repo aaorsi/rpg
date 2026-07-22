@@ -15,8 +15,6 @@ from .models import (
     DialogueTurnResponse,
     GeneratedNpcPersona,
     LlmDialogueOutput,
-    InteractionLineRequest,
-    InteractionLineResponse,
     MessageDto,
     NarrativeGenerationRequest,
     NarrativeGenerationResponse,
@@ -96,39 +94,6 @@ class PolicyOrchestrator:
         except Exception as ex:
             return self._fail("dialogue_failed", rid, ex)
 
-    async def run_interaction_line(self, request: InteractionLineRequest) -> PolicyEnvelope:
-        rid = request.request_id
-        version_error = self._reject_unsupported_version(request.schema_version, rid)
-        if version_error is not None:
-            return version_error
-        try:
-            system = (
-                "You are an NPC in a village RPG. Reply with ONLY valid JSON matching "
-                '{"say":"one short in-character line"}. No markdown, no extra keys.'
-            )
-            raw = await self._adapter.chat(
-                base_url=request.provider_base_url or _DEFAULT_PROVIDER,
-                model=request.model,
-                messages=[
-                    MessageDto(role="system", content=system),
-                    MessageDto(role="user", content=request.prompt or ""),
-                ],
-                api_token=request.api_token,
-            )
-            llm_output = LlmDialogueOutput.model_validate(parse_dialogue_output(raw))
-            say = (llm_output.say or "").strip()
-            if not say:
-                raise ValueError("empty_say")
-            response = InteractionLineResponse(
-                request_id=rid,
-                say=say,
-                raw_assistant=raw,
-            )
-            return PolicyEnvelope(ok=True, interaction=response)
-        except Exception as ex:
-            return self._fail("interaction_line_failed", rid, ex)
-
-    async def run_summary(self, request: ConversationSummaryRequest) -> PolicyEnvelope:
         rid = request.request_id
         version_error = self._reject_unsupported_version(request.schema_version, rid)
         if version_error is not None:

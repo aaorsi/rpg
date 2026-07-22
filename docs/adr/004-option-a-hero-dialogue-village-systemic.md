@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (2026-07-19)
+Accepted (2026-07-19). Phase 6 completed — legacy interaction FSM removed.
 
 ## Context
 
@@ -10,28 +10,30 @@ Gameplay review found village interactions and NPC dialogue feel broken: convers
 
 Product decisions for Option A:
 
-1. **Journal panel** for player-visible progression (implemented in later phases).
+1. **Journal panel** for player-visible progression (Phase 5).
 2. **Keep LLM deliberation** for NPC movement/planning.
 3. **Hero dialogue narrowed to 1:1** in Option A (no multi-party / hero-join interaction FSM).
 4. **Retire interaction FSM dialogue** in favor of systemic village simulation.
 
 ## Decision
 
-1. Introduce `VillageSimulationMode.SystemicOnly` as the default village mode.
-2. In `SystemicOnly`:
-   - Disable interaction FSM spawn/tick and hero-join-interaction dialogue.
-   - Hero **E** opens direct 1:1 NPC dialogue only.
-   - No autonomous interaction dialogue beats (background/HUD/LLM interaction lines).
-   - Retain deliberation, gossip, opinion, agreements, and hero dialogue LLM path.
-3. `LegacyInteractionFsm` remains behind flag for rollback and tests until Phase 6 deletion.
-4. ADR 003 effect-boundary rules (LLM describes, code executes inventory/coins) **still apply** to hero dialogue actions.
+1. `VillageSimulationMode.SystemicOnly` is the only village mode.
+2. Village social drama is **systemic + rumor**, not simulated NPC↔NPC conversation:
+   - `VillageSystemicEventResolver` + `VillageRumorFeed` on chat proximity
+   - Gossip/opinion propagation via `VillageOpinionService`
+   - Hero **E** opens direct 1:1 NPC dialogue only
+3. Hero dialogue is the **only** LLM conversation surface:
+   - `NarrativeGraphService` injects active section objectives into prompts
+   - `TurnAuthorizer` tracks stall counts and escalates redirect hints
+   - `VillageJournalPanel` (J) surfaces milestones and rumors
+4. ADR 003 effect-boundary rules (LLM describes, code executes inventory/coins) **still apply** to hero dialogue actions via `InteractionEffectResolver` for hero-authorized actions.
 
 ## Consequences
 
-- Phase 1 stops fake village dialogue immediately.
-- Later phases add narrative graph, turn authorization, rumor feed, and journal UI without interaction FSM.
-- F8 debug panel deprecates interaction controls under `SystemicOnly`.
-- Multi-party dialogue APIs are blocked in `SystemicOnly`; debug may still use legacy mode.
+- Interaction FSM spawn/tick, `InteractionDialogueScript`, and sidecar `run_interaction_line` are removed.
+- `InteractionDefinitionRegistry` / `InteractionEffectResolver` remain for deterministic hero action effects and debug registry tests.
+- F8 debug panel deprecates interaction start controls; systemic events and opinion debug remain.
+- Multi-party / hero-join interaction dialogue APIs are stubbed to no-op.
 
 ## Supersedes
 

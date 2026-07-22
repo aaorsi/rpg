@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "chatProximityRollChance": 0.10,
+  "pairCooldownSeconds": 45,
+  "events": [
+    {
+      "id": "village_gossip",
+      "trigger": "chat_proximity",
+      "weight": 0.55,
+      "rumorTemplate": "Word spreads that {actor} and {target} were seen talking together."
+    },
+    {
+      "id": "shrine_tension",
+      "trigger": "chat_proximity",
+      "weight": 0.25,
+      "rumorTemplate": "Villagers notice tension between {actor} and {target} near the square."
+    },
+    {
+      "id": "theft_whisper",
+      "trigger": "low_opinion_theft",
+      "weight": 1.0,
+      "rumorTemplate": "A rumor claims {actor} may have taken something from {target}.",
+      "requiresActorOpinionBelow": -15,
+      "opinionDeltaTowardHero": -2
+    },
+    {
+      "id": "alliance_whisper",
+      "trigger": "high_pair_affinity",
+      "weight": 1.0,
+      "rumorTemplate": "{actor} and {target} seem to be growing closer lately.",
+      "requiresPairAffinityAbove": 3
+    }
+  ]
+}

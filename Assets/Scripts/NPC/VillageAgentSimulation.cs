@@ -43,6 +43,8 @@ namespace Rpg.Npc
         VillageOpinionService _opinionService;
         AmbientNpcChatterService _ambientChatterService;
         VillageAutonomyTelemetry _telemetry;
+        VillageSystemicEventResolver _systemicEventResolver;
+        VillageRumorFeed _rumorFeed;
         InteractionDefinitionRegistry _interactionRegistry;
         InteractionDefinitionsDoc _interactionDefinitions;
         NpcInteractionMemoryService _interactionMemory;
@@ -76,6 +78,7 @@ namespace Rpg.Npc
 
         public IReadOnlyDictionary<string, VillagerRuntimeState> States => _stateByNpcId;
         public VillageOpinionService OpinionService => _opinionService;
+        public VillageRumorFeed RumorFeed => _rumorFeed;
         public InteractionDefinitionsDoc InteractionDefinitions => _interactionDefinitions;
         public VillageWorldReferenceSnapshot WorldReferenceSnapshot => _worldReferenceSnapshot;
         public IReadOnlyList<VillageInteractionRejectEvent> InteractionRejectEvents => _interactionDebugEvents.RejectEvents;
@@ -87,7 +90,7 @@ namespace Rpg.Npc
         public IReadOnlyList<InteractionRuntimeInstance> ActiveInteractions => _activeInteractions;
         public VillageSimulationMode SimulationMode => simulationMode;
         public bool IsSystemicOnlyMode => simulationMode == VillageSimulationMode.SystemicOnly;
-        public bool IsInteractionRunnerActive => enableInteractionRunner && !IsSystemicOnlyMode;
+        public bool IsInteractionRunnerActive => false;
         public bool HasRunningInteractions
         {
             get
@@ -824,59 +827,8 @@ namespace Rpg.Npc
 
         public bool TryStartInteractionForDebug(string interactionId, string actorNpcId, string targetNpcId, out string error)
         {
-            EnsureInitialized();
-            error = string.Empty;
-            if (!IsInteractionRunnerActive)
-            {
-                error = IsSystemicOnlyMode ? "systemic_only_mode" : "interaction_runner_disabled";
-                return false;
-            }
-
-            if (string.IsNullOrWhiteSpace(interactionId))
-            {
-                error = "missing_interaction_id";
-                return false;
-            }
-
-            if (!IsValidInteractionParticipant(actorNpcId))
-            {
-                error = "unknown_actor";
-                return false;
-            }
-
-            if (!IsValidInteractionParticipant(targetNpcId))
-            {
-                error = "unknown_target";
-                return false;
-            }
-
-            if (string.Equals(actorNpcId, targetNpcId, StringComparison.OrdinalIgnoreCase))
-            {
-                error = "actor_equals_target";
-                return false;
-            }
-
-            var definition = FindInteractionDefinition(interactionId);
-            if (definition == null)
-            {
-                error = "unknown_interaction";
-                return false;
-            }
-
-            var pairKey = BuildInteractionPairKey(actorNpcId, targetNpcId);
-            if (HasActiveInteractionForPair(pairKey))
-            {
-                error = "pair_already_active";
-                return false;
-            }
-
-            var now = Time.time;
-            var instance = CreateInteractionInstance(definition, actorNpcId, targetNpcId, now);
-            _activeInteractions.Add(instance);
-            _interactionPairCooldownByKey[pairKey] = now + Mathf.Max(0f, interactionPairCooldownSeconds);
-            _interactionMemory?.RecordInteractionStarted(instance, definition, ResolveDisplayNameFromState);
-            BeginInteraction(instance);
-            return true;
+            error = "interaction_fsm_removed";
+            return false;
         }
 
         public bool TryStartGroupInteractionForDebug(
@@ -885,75 +837,8 @@ namespace Rpg.Npc
             IReadOnlyList<string> audienceNpcIds,
             out string error)
         {
-            EnsureInitialized();
-            error = string.Empty;
-            if (!IsInteractionRunnerActive)
-            {
-                error = IsSystemicOnlyMode ? "systemic_only_mode" : "interaction_runner_disabled";
-                return false;
-            }
-
-            if (string.IsNullOrWhiteSpace(interactionId))
-            {
-                error = "missing_interaction_id";
-                return false;
-            }
-
-            if (!IsValidInteractionParticipant(convenerNpcId))
-            {
-                error = "unknown_convener";
-                return false;
-            }
-
-            var audience = new List<string>();
-            if (audienceNpcIds != null)
-            {
-                for (var i = 0; i < audienceNpcIds.Count; i++)
-                {
-                    var id = audienceNpcIds[i];
-                    if (string.IsNullOrWhiteSpace(id))
-                        continue;
-                    var trimmed = id.Trim();
-                    if (string.Equals(trimmed, convenerNpcId, StringComparison.OrdinalIgnoreCase))
-                        continue;
-                    if (!IsValidInteractionParticipant(trimmed))
-                        continue;
-                    if (!audience.Contains(trimmed))
-                        audience.Add(trimmed);
-                }
-            }
-
-            if (audience.Count == 0)
-            {
-                error = "missing_audience";
-                return false;
-            }
-
-            var definition = FindInteractionDefinition(interactionId);
-            if (definition == null)
-            {
-                error = "unknown_interaction";
-                return false;
-            }
-
-            var primaryAudience = audience[0];
-            var pairKey = BuildInteractionPairKey(convenerNpcId, primaryAudience);
-            if (HasActiveInteractionForPair(pairKey))
-            {
-                error = "pair_already_active";
-                return false;
-            }
-
-            var now = Time.time;
-            var instance = CreateInteractionInstance(definition, convenerNpcId, primaryAudience, now);
-            for (var i = 1; i < audience.Count; i++)
-                instance.extraParticipantNpcIds.Add(audience[i]);
-            instance.heroJoinEnabled = IsHeroJoinInteraction(definition);
-            _activeInteractions.Add(instance);
-            _interactionPairCooldownByKey[pairKey] = now + Mathf.Max(0f, interactionPairCooldownSeconds);
-            _interactionMemory?.RecordInteractionStarted(instance, definition, ResolveDisplayNameFromState);
-            BeginInteraction(instance);
-            return true;
+            error = "interaction_fsm_removed";
+            return false;
         }
 
         public IReadOnlyList<string> GetInteractionParticipantNpcIds(string interactionInstanceId)
@@ -1477,7 +1362,7 @@ namespace Rpg.Npc
             IVillageDeliberationTransport transport,
             WorldStateService worldState = null,
             string askStatePath = null,
-            VillageSimulationMode testSimulationMode = VillageSimulationMode.LegacyInteractionFsm)
+            VillageSimulationMode testSimulationMode = VillageSimulationMode.SystemicOnly)
         {
             _transport = transport;
             _worldState = worldState;
@@ -1529,6 +1414,7 @@ namespace Rpg.Npc
             RefreshVillagerRegistry(nowTime);
             QueueInteractionGossip(nowTime);
             _opinionService.ProcessGossip(maxGossipInteractionsPerTick);
+            ApplyPendingGroupAskMilestoneSignals();
             TickInteractions(nowTime);
             TryFinalizeInFlightResult();
             if (_inFlight != null)
@@ -1559,6 +1445,10 @@ namespace Rpg.Npc
                 _ambientChatterService = new AmbientNpcChatterService();
             if (_telemetry == null)
                 _telemetry = new VillageAutonomyTelemetry();
+            if (_systemicEventResolver == null)
+                _systemicEventResolver = new VillageSystemicEventResolver();
+            if (_rumorFeed == null)
+                _rumorFeed = new VillageRumorFeed();
             if (_transport == null)
                 _transport = new SidecarVillageDeliberationTransport(_settings);
             if (_interactionRegistry == null)
@@ -1748,7 +1638,57 @@ namespace Rpg.Npc
 
                 var targetNpcId = state.Controller.CurrentTargetNpcId;
                 _opinionService.QueueInteraction(state.NpcId, targetNpcId);
+                TryEmitSystemicChatEvent(nowTime, state.NpcId, targetNpcId);
                 TryEmitAmbientNpcChatter(nowTime, state, targetNpcId);
+            }
+        }
+
+        void ApplyPendingGroupAskMilestoneSignals()
+        {
+            if (_opinionService == null)
+                return;
+            var manager = DialogueManager.Instance;
+            if (manager == null || !manager.IsQuestStateReady)
+                return;
+            var signals = _opinionService.ConsumePendingMilestoneSignals();
+            if (signals == null || signals.Count == 0)
+                return;
+            manager.ApplyQuestSignalsFromVillage("village_group_ask", signals);
+        }
+
+        void TryEmitSystemicChatEvent(float nowTime, string actorNpcId, string targetNpcId)
+        {
+            if (!IsSystemicOnlyMode || _systemicEventResolver == null)
+                return;
+
+            var consequence = _systemicEventResolver.TryResolveChatProximityEvent(
+                actorNpcId,
+                targetNpcId,
+                ResolveDisplayNameFromState(actorNpcId),
+                ResolveDisplayNameFromState(targetNpcId),
+                _opinionService,
+                nowTime);
+            if (consequence == null)
+                return;
+
+            _rumorFeed?.Enqueue(consequence);
+            if (_opinionService != null && Mathf.Abs(consequence.opinionDeltaTowardHero) > 0.01f)
+            {
+                _opinionService.ApplyHeroImpact(
+                    actorNpcId,
+                    consequence.opinionDeltaTowardHero,
+                    0f,
+                    0f,
+                    0f,
+                    0f);
+            }
+
+            if (!string.IsNullOrWhiteSpace(consequence.rumorText))
+            {
+                DialogueTelemetry.Log(
+                    "VillageSystemicEvent",
+                    $"id={consequence.eventId}, actor={actorNpcId}, target={targetNpcId}");
+                DialogueManager.Instance?.ShowHudMessage(consequence.rumorText);
             }
         }
 
