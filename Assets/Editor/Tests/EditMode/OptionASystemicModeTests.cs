@@ -45,43 +45,21 @@ namespace Rpg.Npc.Tests.EditMode
             var go = new GameObject("sim_systemic_only");
             _created.Add(go);
             var simulation = go.AddComponent<VillageAgentSimulation>();
-            simulation.ConfigureForTests(new FailingTransport(), testSimulationMode: VillageSimulationMode.SystemicOnly);
+            simulation.ConfigureForTests(new FailingTransport());
 
             Assert.IsFalse(simulation.TryStartInteractionForDebug("steal", "v_sys_a", "v_sys_b", out var error));
-            Assert.AreEqual("systemic_only_mode", error);
+            Assert.AreEqual("interaction_fsm_removed", error);
             Assert.AreEqual(0, simulation.ActiveInteractions.Count);
         }
 
         [Test]
-        public void LegacyInteractionFsm_AllowsDebugInteractionStart()
+        public void InteractionRunner_IsPermanentlyDisabled()
         {
-            CreateVillagerRoot("v_legacy_a");
-            CreateVillagerRoot("v_legacy_b");
-            var go = new GameObject("sim_legacy_fsm");
+            var go = new GameObject("sim_runner_disabled");
             _created.Add(go);
             var simulation = go.AddComponent<VillageAgentSimulation>();
-            simulation.ConfigureForTests(new FailingTransport(), testSimulationMode: VillageSimulationMode.LegacyInteractionFsm);
-            simulation.TickSimulation(0f);
-
-            Assert.IsTrue(simulation.TryStartInteractionForDebug("steal", "v_legacy_a", "v_legacy_b", out var error), error);
-            Assert.Greater(simulation.ActiveInteractions.Count, 0);
-        }
-
-        [Test]
-        public void SystemicOnly_SkipsInteractionTickWithoutCompletingLegacyInstances()
-        {
-            CreateVillagerRoot("v_tick_a");
-            CreateVillagerRoot("v_tick_b");
-            var go = new GameObject("sim_systemic_tick");
-            _created.Add(go);
-            var simulation = go.AddComponent<VillageAgentSimulation>();
-            simulation.ConfigureForTests(new FailingTransport(), testSimulationMode: VillageSimulationMode.LegacyInteractionFsm);
-            simulation.TickSimulation(0f);
-            Assert.IsTrue(simulation.TryStartInteractionForDebug("steal", "v_tick_a", "v_tick_b", out _));
-            var countBefore = simulation.ActiveInteractions.Count;
-            simulation.SetSimulationModeForTests(VillageSimulationMode.SystemicOnly);
-            simulation.TickSimulation(100f);
-            Assert.AreEqual(countBefore, simulation.ActiveInteractions.Count);
+            simulation.ConfigureForTests(new FailingTransport());
+            Assert.IsFalse(simulation.IsInteractionRunnerActive);
         }
 
         GameObject CreateVillagerRoot(string npcId)

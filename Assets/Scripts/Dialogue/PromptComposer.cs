@@ -37,7 +37,11 @@ namespace Rpg.Dialogue
             List<string> capabilities = null,
             string activePlanContext = null,
             string activeGoalsContext = null,
-            string multiPartyContextBlock = null)
+            string multiPartyContextBlock = null,
+            string narrativeSectionBlock = null,
+            string villageRumorFactsBlock = null,
+            string villageStandingFactsBlock = null,
+            string dialogueRoleRulesBlock = null)
         {
             var system = BuildSystemPrompt(
                 npc,
@@ -52,7 +56,11 @@ namespace Rpg.Dialogue
                 capabilities,
                 activePlanContext,
                 activeGoalsContext,
-                multiPartyContextBlock);
+                multiPartyContextBlock,
+                narrativeSectionBlock,
+                villageRumorFactsBlock,
+                villageStandingFactsBlock,
+                dialogueRoleRulesBlock);
             var messages = new List<OllamaMessageDto>
             {
                 new OllamaMessageDto("system", system)
@@ -78,10 +86,22 @@ namespace Rpg.Dialogue
             List<string> capabilities = null,
             string activePlanContext = null,
             string activeGoalsContext = null,
-            string multiPartyContextBlock = null)
+            string multiPartyContextBlock = null,
+            string narrativeSectionBlock = null,
+            string villageRumorFactsBlock = null,
+            string villageStandingFactsBlock = null,
+            string dialogueRoleRulesBlock = null)
         {
             var template = LoadTemplate("npc_system_template.txt");
             var facts = world.ToFactsBlock();
+            if (!string.IsNullOrWhiteSpace(villageRumorFactsBlock))
+            {
+                facts = facts + "\n\nRECENT_VILLAGE_RUMORS:\n" + villageRumorFactsBlock.Trim();
+            }
+            if (!string.IsNullOrWhiteSpace(villageStandingFactsBlock))
+            {
+                facts = facts + "\n\nVILLAGE_STANDING:\n" + villageStandingFactsBlock.Trim();
+            }
             var memoryBlock = _memory != null
                 ? _memory.BuildPromptBlock(npc.npcId)
                 : "(Long-term memory is not wired for this build.)";
@@ -143,11 +163,46 @@ namespace Rpg.Dialogue
                 "- If IS_GHOUL_STORY_NPC=true, this is pure atmospheric villain banter: never emit proposedNpcActions, trades, guides, milestones, or state deltas; keep interactionOutcome as menace_flavor; write in ALL CAPS.\n" +
                 "- Never accuse the hero of stealing YOUR chicken unless INVENTORY_CONTEXT explicitly supports that confrontation for this NPC_ID; if IS_GHOUL_STORY_NPC=true, never mention chicken theft.\n" +
                 "- When speaking, prefer one clear next-step tied to a visible milestone or NPC goal.\n" +
+                BuildDialogueRoleRules(npc, dialogueRoleRulesBlock) +
                 "- At some point in natural conversation, all NPCs should mention that magic is contained in books and that some locations feel more magical than others.\n" +
                 "- If NPC_TYPE is sidekick, also mention that sidekicks know magic and groups of 3 or more magicians together can cast the most powerful spell.\n" +
                 (string.IsNullOrWhiteSpace(multiPartyContextBlock)
                     ? string.Empty
-                    : "\n\nMULTI_PARTY_CONTEXT:\n" + multiPartyContextBlock.Trim() + "\n");
+                    : "\n\nMULTI_PARTY_CONTEXT:\n" + multiPartyContextBlock.Trim() + "\n") +
+                (string.IsNullOrWhiteSpace(narrativeSectionBlock)
+                    ? string.Empty
+                    : "\n\nNARRATIVE_SECTION:\n" + narrativeSectionBlock.Trim() + "\n");
+        }
+
+        public static string BuildDialogueRoleRulesBlock(NpcDefinition npc) =>
+            BuildDialogueRoleRules(npc, null);
+
+        static string BuildDialogueRoleRules(NpcDefinition npc, string overrideBlock)
+        {
+            if (!string.IsNullOrWhiteSpace(overrideBlock))
+                return overrideBlock.Trim() + "\n";
+
+            var role = npc != null ? npc.dialogueRole : NpcDialogueRole.Default;
+            if (SidekickCompanion.BindingRootHasSidekick(npc != null ? npc.npcId : null))
+                role = NpcDialogueRole.Sidekick;
+            if (GhoulMenaceController.IsGhoulStoryNpcId(npc != null ? npc.npcId : null))
+                role = NpcDialogueRole.Ghoul;
+
+            switch (role)
+            {
+                case NpcDialogueRole.Merchant:
+                    return "- DIALOGUE_ROLE: merchant — keep trades and prices concrete; prefer trade/give/receive actions when agreeing.\n";
+                case NpcDialogueRole.QuestGiver:
+                    return "- DIALOGUE_ROLE: quest_giver — tie every other line to the active NARRATIVE_SECTION objective.\n";
+                case NpcDialogueRole.Gossip:
+                    return "- DIALOGUE_ROLE: gossip — stay light; reference RECENT_VILLAGE_RUMORS when relevant; avoid forcing milestones.\n";
+                case NpcDialogueRole.Sidekick:
+                    return "- DIALOGUE_ROLE: sidekick — follow existing sidekick overrides.\n";
+                case NpcDialogueRole.Ghoul:
+                    return "- DIALOGUE_ROLE: ghoul — atmospheric only.\n";
+                default:
+                    return "- DIALOGUE_ROLE: villager — balance personality with the active NARRATIVE_SECTION when present.\n";
+            }
         }
 
         static string SafeInline(string value) => string.IsNullOrWhiteSpace(value) ? "(none)" : value.Trim();

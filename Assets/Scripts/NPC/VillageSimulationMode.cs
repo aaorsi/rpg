@@ -1,11 +1,10 @@
 namespace Rpg.Npc
 {
     /// <summary>
-    /// Controls how village autonomy runs. Option A uses <see cref="SystemicOnly"/>.
+    /// Village autonomy runs systemic simulation only (Option A — no interaction FSM).
     /// </summary>
     public enum VillageSimulationMode
     {
-        LegacyInteractionFsm = 0,
         SystemicOnly = 1,
     }
 }

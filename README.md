@@ -129,16 +129,16 @@ The sidecar is the preferred path. A direct Unity fallback path still exists for
 3. Sidecar validates model response and applies NPC-type policy.
 4. Unity commits results (dialogue, actions, agreements, milestones, memory).
 
-### Village autonomy loop
+### Village autonomy loop (Option A — systemic only)
 
 `VillageAgentSimulation` periodically:
 
 - refreshes villager participants,
-- processes gossip interactions,
+- processes gossip and rolls deterministic systemic events (`VillageSystemicEventResolver` → `VillageRumorFeed`),
 - schedules one deliberation at a time (cadence budget),
 - applies plan results to `NpcAgentController`.
 
-This keeps behavior dynamic without overwhelming local hardware.
+Hero dialogue is the only LLM conversation surface. Village social drama surfaces via rumors, opinion shifts, and the journal panel (J). The legacy interaction FSM is removed.
 
 ---
 
@@ -178,7 +178,9 @@ pytest
 
 ### Unity
 
-Use **Window -> General -> Test Runner -> EditMode**.
+Use **Window -> General -> Test Runner -> EditMode** locally, or see [docs/CI.md](docs/CI.md) for GitHub Actions.
+
+After Option A changes, run [docs/playtest/option-a-baseline.md](docs/playtest/option-a-baseline.md) before content tuning.
 
 ---
 

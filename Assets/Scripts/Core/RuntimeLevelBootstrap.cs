@@ -1235,6 +1235,7 @@ namespace Rpg.Core
                 "Village life is simple, but never boring.",
                 "I can share what I know about people and places nearby."
             };
+            def.dialogueRole = NpcDialogueRole.Gossip;
             return def;
         }
 
@@ -4112,7 +4113,18 @@ namespace Rpg.Core
                 $"I am mostly focused on {traits.interests} today.",
                 $"People say I am {traits.personality}. What do you think?"
             };
+            def.dialogueRole = ResolveDialogueRoleFromOccupation(traits.occupation);
             return def;
+        }
+
+        static NpcDialogueRole ResolveDialogueRoleFromOccupation(string occupation)
+        {
+            var occ = (occupation ?? string.Empty).ToLowerInvariant();
+            if (occ.Contains("merchant") || occ.Contains("blacksmith") || occ.Contains("artisan"))
+                return NpcDialogueRole.Merchant;
+            if (occ.Contains("guard") || occ.Contains("courier"))
+                return NpcDialogueRole.QuestGiver;
+            return NpcDialogueRole.Gossip;
         }
 
         static string PickNpcDisplayName(string sourceName, int npcIndex)

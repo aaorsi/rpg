@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "sections": [
+    {
+      "id": "sec_trade_chain",
+      "milestoneId": "m_trade_chain",
+      "objective": "Help the hero obtain the items needed for the castle push through concrete trades, gifts, or by naming who has what.",
+      "priority": 10,
+      "activeWhileStatus": ["hinted", "unlocked"],
+      "allowedActionTypes": ["trade", "give_object", "receive_object", "refer_to_npc", "move_to_location"],
+      "redirectHints": [
+        "Offer a specific trade or name an NPC who holds a needed item.",
+        "Suggest one item the hero still needs and how to get it.",
+        "Name the next item or villager the hero should speak to."
+      ]
+    },
+    {
+      "id": "sec_followers",
+      "milestoneId": "m_followers",
+      "objective": "Earn trust so NPCs agree to follow or support the hero's castle approach.",
+      "priority": 9,
+      "activeWhileStatus": ["hinted", "unlocked"],
+      "allowedActionTypes": ["follow_hero", "refer_to_npc", "trade", "give_object"],
+      "redirectHints": [
+        "Propose a clear reason an NPC should join or vouch for the hero.",
+        "Ask what the hero must do to earn this NPC's trust.",
+        "Offer a concrete favor or proof of commitment."
+      ]
+    },
+    {
+      "id": "sec_castle_push",
+      "milestoneId": "m_castle_push",
+      "objective": "Coordinate the final approach: allies, supplies, and a plan to reach the Ghoul.",
+      "priority": 8,
+      "activeWhileStatus": ["hinted", "unlocked"],
+      "allowedActionTypes": ["move_to_location", "refer_to_npc", "follow_hero", "trade"],
+      "redirectHints": [
+        "Name the next concrete step toward the castle or the Ghoul.",
+        "Identify who or what the hero still needs before the push.",
+        "Suggest one supply or ally still missing for the castle route."
+      ]
+    },
+    {
+      "id": "sec_village_mayor",
+      "milestoneId": "m_village_mayor_arc",
+      "objective": "Respond to village leadership pressure — weigh running for mayor or redirecting the movement.",
+      "priority": 7,
+      "activeWhileStatus": ["hinted", "unlocked"],
+      "allowedActionTypes": ["refer_to_npc", "move_to_location"],
+      "redirectHints": [
+        "Acknowledge the mayor ask and state what the hero would need to decide.",
+        "Name one village problem leadership could solve.",
+        "Offer a measured stance on running or supporting a candidate."
+      ]
+    },
+    {
+      "id": "sec_village_faith",
+      "milestoneId": "m_village_religious_arc",
+      "objective": "Address religious leadership expectations without breaking character.",
+      "priority": 6,
+      "activeWhileStatus": ["hinted", "unlocked"],
+      "allowedActionTypes": ["refer_to_npc", "move_to_location"],
+      "redirectHints": [
+        "Respond to piety expectations with a concrete village concern.",
+        "Offer a measured stance on the shrine or faith community.",
+        "Name how faith and daily village needs intersect."
+      ]
+    }
+  ]
+}

@@ -21,6 +21,7 @@ namespace Rpg.UI
         Canvas _canvas;
         GameObject _panelRoot;
         Text _title;
+        Text _attitudeSubtitle;
         Text _playerEcho;
         Text _npcBody;
         Text _systemStrip;
@@ -125,10 +126,21 @@ namespace Rpg.UI
 
         public void Open(string npcDisplayName)
         {
+            Open(npcDisplayName, null);
+        }
+
+        public void Open(string npcDisplayName, string attitudeSubtitle)
+        {
             if (_panelRoot != null && !_panelRoot.activeSelf)
                 PlayUiSfx(_dialogueOpenCloseSfx);
             if (_title != null)
                 _title.text = string.IsNullOrWhiteSpace(npcDisplayName) ? "Conversation" : npcDisplayName;
+            if (_attitudeSubtitle != null)
+            {
+                var subtitle = string.IsNullOrWhiteSpace(attitudeSubtitle) ? string.Empty : attitudeSubtitle.Trim();
+                _attitudeSubtitle.text = subtitle;
+                _attitudeSubtitle.gameObject.SetActive(!string.IsNullOrWhiteSpace(subtitle));
+            }
             var showInventoryDebug =
                 string.Equals((npcDisplayName ?? string.Empty).Trim(), "Debug Console", StringComparison.OrdinalIgnoreCase);
             if (_inventoryStrip != null)
@@ -754,11 +766,28 @@ namespace Rpg.UI
             _title.color = Color.white;
             _title.alignment = TextAnchor.MiddleLeft;
             var titleRt = titleGo.GetComponent<RectTransform>();
-            titleRt.anchorMin = new Vector2(0.02f, 0.86f);
-            titleRt.anchorMax = new Vector2(0.52f, 0.98f);
+            titleRt.anchorMin = new Vector2(0.02f, 0.90f);
+            titleRt.anchorMax = new Vector2(0.98f, 0.98f);
             titleRt.offsetMin = Vector2.zero;
             titleRt.offsetMax = Vector2.zero;
             RuntimeUiBuildMaterials.TryApplyLegacyTextMaterial(_title);
+
+            var attitudeGo = new GameObject("AttitudeSubtitle");
+            attitudeGo.transform.SetParent(_panelRoot.transform, false);
+            _attitudeSubtitle = attitudeGo.AddComponent<Text>();
+            _attitudeSubtitle.font = uiFont;
+            _attitudeSubtitle.fontSize = FontSize - 2;
+            _attitudeSubtitle.color = new Color(0.82f, 0.78f, 0.62f, 1f);
+            _attitudeSubtitle.alignment = TextAnchor.UpperLeft;
+            _attitudeSubtitle.horizontalOverflow = HorizontalWrapMode.Wrap;
+            _attitudeSubtitle.verticalOverflow = VerticalWrapMode.Truncate;
+            var attitudeRt = attitudeGo.GetComponent<RectTransform>();
+            attitudeRt.anchorMin = new Vector2(0.02f, 0.84f);
+            attitudeRt.anchorMax = new Vector2(0.98f, 0.90f);
+            attitudeRt.offsetMin = Vector2.zero;
+            attitudeRt.offsetMax = Vector2.zero;
+            RuntimeUiBuildMaterials.TryApplyLegacyTextMaterial(_attitudeSubtitle);
+            attitudeGo.SetActive(false);
 
             var playerEchoGo = new GameObject("PlayerEcho");
             playerEchoGo.transform.SetParent(_panelRoot.transform, false);

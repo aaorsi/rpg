@@ -139,12 +139,7 @@ namespace Rpg.Npc
                 DrawWorldCatalogSection(simulation);
                 DrawPrimaryNpcSelectors(simulation);
                 DrawAtomicActionControls(simulation);
-                if (!simulation.IsSystemicOnlyMode)
-                {
-                    DrawInteractionControls(simulation);
-                    DrawProposedInteractionControls(simulation);
-                    DrawInteractionOverview(simulation);
-                }
+                DrawSystemicDebugSection(simulation);
                 DrawPerNpcControls(simulation);
                 DrawRejectEventLog(simulation);
             }
@@ -540,6 +535,50 @@ namespace Rpg.Npc
             }
 
             return null;
+        }
+
+        void DrawSystemicDebugSection(VillageAgentSimulation simulation)
+        {
+            GUILayout.Space(6f);
+            GUILayout.Label("Systemic village (Option A)", _titleStyle);
+            GUILayout.Label(
+                "Interaction FSM removed. Use gossip, opinion, and 1:1 hero dialogue.",
+                _helpStyle);
+
+            var rumors = simulation.RumorFeed?.SnapshotRecent(4);
+            if (rumors != null && rumors.Count > 0)
+            {
+                GUILayout.Label("Recent rumors", _lineStyle);
+                for (var i = rumors.Count - 1; i >= 0; i--)
+                {
+                    var rumor = rumors[i];
+                    if (rumor == null || string.IsNullOrWhiteSpace(rumor.rumorText))
+                        continue;
+                    GUILayout.Label("• " + rumor.rumorText.Trim(), _lineStyle);
+                }
+            }
+            else
+            {
+                GUILayout.Label("No rumors yet — force chat or queue gossip below.", _lineStyle);
+            }
+
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Re-deliberate all", GUILayout.Width(120f)))
+            {
+                simulation.RequestGlobalRedeliberation("debug_panel_global");
+                _statusLine = "requested global re-deliberation";
+            }
+
+            if (GUILayout.Button("Process gossip (1)", GUILayout.Width(120f)))
+            {
+                var processed = simulation.ProcessGossipForDebug(1);
+                _statusLine = $"processed gossip: {processed}";
+            }
+            GUILayout.EndHorizontal();
+
+            if (!string.IsNullOrWhiteSpace(_statusLine))
+                GUILayout.Label("status: " + _statusLine, _lineStyle);
+            GUILayout.Space(6f);
         }
 
         void DrawInteractionControls(VillageAgentSimulation simulation)
